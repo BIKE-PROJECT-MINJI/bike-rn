@@ -1,155 +1,102 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import * as Location from 'expo-location';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import MapView, { Polyline } from 'react-native-maps';
-import { fetchCourseRoutePoints } from '../../domain/course/courseService';
-import { toRidePolicyLocation } from '../../domain/ride/ridePolicyModels';
-import { evaluateRidePolicy } from '../../domain/ride/ridePolicyService';
-import { activeElapsedMs, appendRideSample, formatHudDistance, formatHudDuration, initialRideTrackingState, pauseRide, resumeRide } from '../../domain/ride/rideTracking';
+import { useQuery } from '@tanstack/react-query';
+import { router } from 'expo-router';
+import { Linking, StyleSheet, Text, View } from 'react-native';
+import { loadAuthSession } from '../../domain/auth/authSessionStore';
+import { fetchRideRecords } from '../../domain/ride/rideApi';
+import { rideElapsedMs } from '../../domain/ride/rideQueueModel';
+import { formatHudDistance, formatHudDuration } from '../../domain/ride/rideTracking';
 import { GajaColors } from '../../shared/design/tokens';
 import { GajaButton } from '../../shared/ui/GajaButton';
-import { StatusBadge } from '../../shared/ui/GajaCard';
-import { GajaFullScreen } from '../../shared/ui/GajaScreen';
+import { GajaCard, StatusBadge } from '../../shared/ui/GajaCard';
+import { GajaScreen } from '../../shared/ui/GajaScreen';
+import { useRideSession } from './useRideSession';
 
 export function FreeRideHudScreen() {
-  const params = useLocalSearchParams<{ courseId?: string; courseTitle?: string }>();
-  const courseId = Number(params.courseId ?? 0);
-  const [trackingState, setTrackingState] = useState(() => initialRideTrackingState(Date.now()));
-  const [permissionMessage, setPermissionMessage] = useState('위치 권한을 확인하는 중입니다.');
-  const [latestAccuracyM, setLatestAccuracyM] = useState(30);
-  const [nowMs, setNowMs] = useState(Date.now());
-  const lastEvaluatedPointOrderRef = useRef(0);
-  const rideTitle = params.courseTitle ? `코스 주행 · ${params.courseTitle}` : '자유 주행';
-  const courseRouteQuery = useQuery({
-    queryKey: ['ride-course-route-points', courseId],
-    queryFn: () => fetchCourseRoutePoints(courseId),
-    enabled: courseId > 0,
+  const sessionQuery = useQuery({ queryKey: ['auth-session'], queryFn: loadAuthSession });
+  const accessToken = sessionQuery.data?.accessToken ?? null;
+  const ride = useRideSession(accessToken);
+  const recordsQuery = useQuery({
+    queryKey: ['ride-records', ride.receipt?.rideRecordId],
+    queryFn: () => fetchRideRecords(requireAccessToken(accessToken)),
+    enabled: accessToken !== null,
   });
-  const ridePolicyMutation = useMutation({
-    mutationFn: (request: Parameters<typeof evaluateRidePolicy>[1]) => evaluateRidePolicy(courseId, request),
-  });
-
-  useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    let subscription: Location.LocationSubscription | null = null;
-    let disposed = false;
-
-    async function startLocation() {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        setPermissionMessage('위치 권한이 없어 지도와 속도 기능이 제한됩니다.');
-        return;
-      }
-      setPermissionMessage('foreground 위치 수집 중');
-      subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, distanceInterval: 5, timeInterval: 2000 },
-        (location) => {
-          if (disposed) {
-            return;
-          }
-          setLatestAccuracyM(location.coords.accuracy ?? 30);
-          setTrackingState((state) =>
-            appendRideSample(state, {
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-              recordedAtMs: location.timestamp,
-            }),
-          );
-        },
-      );
-    }
-
-    startLocation();
-    return () => {
-      disposed = true;
-      subscription?.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    const lastPoint = trackingState.trackedPoints.at(-1);
-    if (courseId <= 0 || !lastPoint || ridePolicyMutation.isPending || lastPoint.pointOrder === lastEvaluatedPointOrderRef.current) {
-      return;
-    }
-    lastEvaluatedPointOrderRef.current = lastPoint.pointOrder;
-    const trace = trackingState.trackedPoints.slice(-80).map((point) => toRidePolicyLocation(point, latestAccuracyM));
-    ridePolicyMutation.mutate({
-      phase: 'ACTIVE',
-      location: toRidePolicyLocation(lastPoint, latestAccuracyM),
-      trace,
-    });
-  }, [courseId, latestAccuracyM, ridePolicyMutation, trackingState.trackedPoints]);
-
-  const region = useMemo(() => {
-    const last = trackingState.lastAcceptedSample;
-    return {
-      latitude: last?.latitude ?? 37.5665,
-      longitude: last?.longitude ?? 126.978,
-      latitudeDelta: 0.02,
-      longitudeDelta: 0.02,
-    };
-  }, [trackingState.lastAcceptedSample]);
-
-  const polyline = trackingState.trackedPoints.map((point) => ({ latitude: point.latitude, longitude: point.longitude }));
-  const coursePolyline = (courseRouteQuery.data ?? []).map((point) => ({ latitude: point.latitude, longitude: point.longitude }));
-  const policy = ridePolicyMutation.data;
-  const guidanceTone = policy?.overallState.includes('OFF_ROUTE') || policy?.offRouteStatus === 'WARNING' ? 'warning' : 'success';
+  const isTracking = ride.draft?.status === 'RECORDING' || ride.draft?.status === 'PAUSED';
+  const needsLogin = accessToken === null || ride.draft?.status === 'FAILED_USER_ACTION';
+  const canRetry =
+    ride.draft?.status === 'QUEUED' ||
+    ride.draft?.status === 'UPLOADING' ||
+    ride.draft?.status === 'RETRY_WAIT';
+  const elapsedMs = ride.draft === null ? 0 : rideElapsedMs(ride.draft, ride.nowMs);
 
   return (
-    <GajaFullScreen>
-      <MapView style={StyleSheet.absoluteFill} region={region} showsUserLocation>
-        {coursePolyline.length > 1 ? <Polyline coordinates={coursePolyline} strokeColor={GajaColors.routeOrange} strokeWidth={6} /> : null}
-        {polyline.length > 1 ? <Polyline coordinates={polyline} strokeColor={GajaColors.routeBlue} strokeWidth={5} /> : null}
-      </MapView>
-      <View style={styles.topDock}>
-        <Text style={styles.rideTitle}>{rideTitle}</Text>
-        <StatusBadge label={trackingState.status === 'ACTIVE' ? '주행 중' : '일시정지'} tone={trackingState.status === 'ACTIVE' ? 'success' : 'warning'} />
-        <Text style={styles.permission}>{permissionMessage}</Text>
-        {courseId > 0 ? (
-          <Text style={styles.permission}>
-            코스 경로 {courseRouteQuery.data?.length ?? 0}개 · 내 경로 {trackingState.trackedPoints.length}개
-          </Text>
+    <GajaScreen>
+      <GajaCard title="자유 주행" subtitle="화면 잠금과 네트워크 끊김에도 주행 원본을 먼저 기기에 보존합니다.">
+        <View style={styles.badges}>
+          <StatusBadge label={accessToken === null ? '로그인 필요' : '로그인됨'} tone={accessToken === null ? 'warning' : 'success'} />
+          <StatusBadge label={ride.draft?.status ?? 'READY_TO_START'} tone={statusTone(ride.draft?.status)} />
+        </View>
+        <Text style={styles.message}>{ride.message}</Text>
+        {ride.errorMessage ? <Text style={styles.error}>{ride.errorMessage}</Text> : null}
+        {ride.draft?.lastLocationErrorCode ? (
+          <Text style={styles.error}>위치 수집 오류: {ride.draft.lastLocationErrorCode}</Text>
         ) : null}
-      </View>
-      <View style={styles.hud}>
-        {courseId > 0 ? (
-          <View style={styles.guidance}>
-            <StatusBadge label={policy?.overallState ?? '코스 안내 준비'} tone={guidanceTone} />
-            <Text style={styles.guidanceText}>{policy?.defaultMessage ?? '현재 위치를 받으면 코스 이탈과 완주 상태를 계산합니다.'}</Text>
+        {needsLogin ? (
+          <GajaButton label="로그인하러 가기" onPress={() => router.push('/(tabs)/profile')} />
+        ) : null}
+        {ride.errorMessage?.includes('항상 허용') ? (
+          <GajaButton label="Android 위치 설정 열기" variant="secondary" onPress={() => Linking.openSettings()} />
+        ) : null}
+      </GajaCard>
+
+      <GajaCard title="주행 상태" subtitle={ride.draft ? `검증 ID ${ride.draft.clientRideId}` : '새 주행을 시작할 수 있습니다.'}>
+        <View style={styles.metrics}>
+          <Metric label="거리" value={formatHudDistance(ride.draft?.distanceMeters ?? 0)} />
+          <Metric label="시간" value={formatHudDuration(elapsedMs)} />
+          <Metric label="포인트" value={`${ride.draft?.routePoints.length ?? 0}`} />
+        </View>
+        {!isTracking && ride.draft === null ? <GajaButton label="주행 시작" onPress={() => void ride.start()} disabled={ride.busy} /> : null}
+        {isTracking ? (
+          <View style={styles.actions}>
+            <GajaButton
+              label={ride.draft?.status === 'PAUSED' ? '재개' : '일시정지'}
+              variant="secondary"
+              onPress={() => void ride.togglePause()}
+              disabled={ride.busy}
+            />
+            <GajaButton label="주행 종료 및 저장" onPress={() => void ride.finish()} disabled={ride.busy} />
           </View>
         ) : null}
-        <View style={styles.metricRow}>
-          <Metric label="거리" value={formatHudDistance(trackingState.distanceMeters)} />
-          <Metric label="시간" value={formatHudDuration(activeElapsedMs(trackingState, nowMs))} />
-          <Metric label="포인트" value={`${trackingState.trackedPoints.length}`} />
-        </View>
-        {courseId > 0 ? (
-          <View style={styles.metricRow}>
-            <Metric label="진행률" value={policy?.progressPercent === null || policy?.progressPercent === undefined ? '-' : `${policy.progressPercent}%`} />
-            <Metric label="남은거리" value={policy?.remainingDistanceM === null || policy?.remainingDistanceM === undefined ? '-' : formatHudDistance(policy.remainingDistanceM)} />
-            <Metric label="이탈거리" value={policy?.offRouteDistanceM === null || policy?.offRouteDistanceM === undefined ? '-' : `${policy.offRouteDistanceM} m`} />
-          </View>
+        {canRetry ? (
+          <GajaButton label="지금 다시 전송" onPress={() => void ride.retry()} disabled={ride.busy} />
         ) : null}
-        <View style={styles.actions}>
-          <GajaButton
-            label={trackingState.status === 'ACTIVE' ? '일시정지' : '재개'}
-            variant="secondary"
-            onPress={() => setTrackingState((state) => (state.status === 'ACTIVE' ? pauseRide(state, Date.now()) : resumeRide(state, Date.now())))}
-          />
-          <GajaButton label="종료" onPress={() => router.back()} />
-        </View>
-      </View>
-    </GajaFullScreen>
+        {ride.draft?.status === 'FAILED_TERMINAL' ? (
+          <Text style={styles.error}>자동 재전송을 중단했습니다. 로컬 원본은 삭제하지 않았습니다.</Text>
+        ) : null}
+      </GajaCard>
+
+      {ride.receipt ? (
+        <GajaCard title="최근 저장 완료" subtitle={`clientRideId ${ride.receipt.clientRideId}`}>
+          <StatusBadge label="READY" tone="success" />
+          <Text style={styles.meta}>서버 주행 기록 #{ride.receipt.rideRecordId}</Text>
+          <Text style={styles.meta}>{ride.receipt.linkedCourseId ? `연결 코스 #${ride.receipt.linkedCourseId}` : '코스화 가능 상태'}</Text>
+        </GajaCard>
+      ) : null}
+
+      <GajaCard title="서버 저장 기록" subtitle="현재 로그인 계정의 최근 주행 결과입니다.">
+        {recordsQuery.isPending ? <Text style={styles.meta}>기록을 불러오는 중입니다.</Text> : null}
+        {recordsQuery.error ? <Text style={styles.error}>{recordsQuery.error.message}</Text> : null}
+        {recordsQuery.data?.slice(0, 3).map((record) => (
+          <View key={record.rideRecordId} style={styles.recordRow}>
+            <Text style={styles.meta}>#{record.rideRecordId} · {formatHudDistance(record.distanceM)}</Text>
+            <StatusBadge label={record.finalizationStatus} tone={record.finalizationStatus === 'READY' ? 'success' : 'warning'} />
+          </View>
+        ))}
+      </GajaCard>
+    </GajaScreen>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value }: { readonly label: string; readonly value: string }) {
   return (
     <View style={styles.metric}>
       <Text style={styles.metricLabel}>{label}</Text>
@@ -158,70 +105,39 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function statusTone(status: string | undefined): 'success' | 'warning' | 'danger' {
+  if (status === 'RECORDING' || status === 'FINALIZING') {
+    return 'success';
+  }
+  if (status === 'FAILED_TERMINAL' || status === 'FAILED_USER_ACTION') {
+    return 'danger';
+  }
+  return 'warning';
+}
+
+function requireAccessToken(accessToken: string | null): string {
+  if (accessToken === null) {
+    throw new MissingAccessTokenError();
+  }
+  return accessToken;
+}
+
+class MissingAccessTokenError extends Error {
+  constructor() {
+    super('로그인이 필요합니다.');
+    this.name = 'MissingAccessTokenError';
+  }
+}
+
 const styles = StyleSheet.create({
-  topDock: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    top: 54,
-    gap: 8,
-  },
-  permission: {
-    color: GajaColors.textPrimary,
-    backgroundColor: 'rgba(255,255,255,0.88)',
-    borderRadius: 14,
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontWeight: '700',
-  },
-  rideTitle: {
-    color: GajaColors.textPrimary,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: 14,
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontWeight: '900',
-  },
-  hud: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 34,
-    backgroundColor: 'rgba(10,47,34,0.94)',
-    borderRadius: 22,
-    padding: 16,
-    gap: 14,
-  },
-  metricRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  metric: {
-    flex: 1,
-  },
-  metricLabel: {
-    color: '#BFE3CB',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  metricValue: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  guidance: {
-    gap: 8,
-  },
-  guidanceText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-    lineHeight: 20,
-  },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  message: { color: GajaColors.textPrimary, fontSize: 15, lineHeight: 22, fontWeight: '700' },
+  error: { color: GajaColors.danger, fontSize: 14, lineHeight: 20 },
+  meta: { color: GajaColors.textSecondary, fontSize: 13 },
+  metrics: { flexDirection: 'row', gap: 10 },
+  metric: { flex: 1, backgroundColor: GajaColors.surfaceMuted, padding: 12, borderRadius: 8 },
+  metricLabel: { color: GajaColors.textMuted, fontSize: 12 },
+  metricValue: { color: GajaColors.textPrimary, fontSize: 20, fontWeight: '800' },
+  actions: { flexDirection: 'row', gap: 10 },
+  recordRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
 });
