@@ -90,8 +90,19 @@ export function appendRidePoint(draft: RideDraft, point: RidePointInput): RideDr
 }
 
 export function appendRidePoints(draft: RideDraft, points: readonly RidePointInput[]): RideDraft {
+  return appendRidePointsFromOrder(draft, points, draft.routePoints.length + 1);
+}
+
+export function appendRidePointsFromOrder(
+  draft: RideDraft,
+  points: readonly RidePointInput[],
+  firstPointOrder: number,
+): RideDraft {
   if (draft.status !== 'RECORDING') {
     return draft;
+  }
+  if (!Number.isInteger(firstPointOrder) || firstPointOrder < 1) {
+    throw new RangeError('첫 위치 포인트 순번은 1 이상의 정수여야 합니다.');
   }
   let previous = draft.routePoints.at(-1);
   let distanceDelta = 0;
@@ -104,7 +115,7 @@ export function appendRidePoints(draft: RideDraft, points: readonly RidePointInp
         point.longitude,
       );
     }
-    const orderedPoint: RidePoint = { ...point, pointOrder: draft.routePoints.length + index + 1 };
+    const orderedPoint: RidePoint = { ...point, pointOrder: firstPointOrder + index };
     previous = orderedPoint;
     return orderedPoint;
   });

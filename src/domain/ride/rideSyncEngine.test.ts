@@ -81,4 +81,24 @@ describe('ride sync engine', () => {
     expect(getRemoteStatus).toHaveBeenCalledTimes(2);
     expect(dependencies.complete).toHaveBeenCalled();
   });
+
+  it('keeps a React Native cross-realm network failure retryable', async () => {
+    const persisted: RideDraft[] = [];
+    const dependencies: RideSyncDependencies = {
+      nowMs: () => 1_700_000_070_000,
+      saveRemote: jest.fn().mockRejectedValue({ name: 'TypeError', message: 'Network request failed.' }),
+      getRemoteStatus: jest.fn(),
+      persist: async (draft) => {
+        persisted.push(draft);
+      },
+      complete: jest.fn(),
+    };
+
+    const result = await syncRideDraft(queuedDraft(), dependencies);
+
+    expect(result.status).toBe('RETRY_WAIT');
+    expect(persisted.at(-1)).toEqual(
+      expect.objectContaining({ status: 'RETRY_WAIT', lastErrorCode: 'NETWORK_ERROR' }),
+    );
+  });
 });

@@ -43,9 +43,7 @@ export async function syncRideDraft(draft: RideDraft, dependencies: RideSyncDepe
       dependencies,
     );
   } catch (error) {
-    const failure = classifyRideUploadFailure(
-      error instanceof Error ? error : new Error('알 수 없는 주행 동기화 오류가 발생했습니다.'),
-    );
+    const failure = classifyRideUploadFailure(error);
     switch (failure.kind) {
       case 'RETRYABLE': {
         const nextAttemptCount = draft.attemptCount + 1;

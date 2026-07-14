@@ -50,6 +50,37 @@ describe('ride upload failure policy', () => {
     });
   });
 
+  it('respects Retry-After for 429 rate limiting', () => {
+    const error = new ApiClientError({
+      message: '요청이 너무 많습니다.',
+      status: 429,
+      retryAfterSeconds: 12,
+    });
+
+    expect(classifyRideUploadFailure(error)).toEqual({
+      kind: 'RETRYABLE',
+      retryAfterSeconds: 12,
+      errorCode: null,
+    });
+  });
+
+  it.each([
+    new TypeError('Network request failed'),
+    Object.assign(new Error('timed out'), { name: 'AbortError' }),
+    new Error('Network request failed'),
+    { name: 'TypeError', message: 'Network request failed.' },
+    {
+      name: 'TypeError',
+      message: 'fetch failed: java.net.ConnectException: Failed to connect to the configured API host',
+    },
+  ])('retries connection and timeout errors without losing the draft', (error) => {
+    expect(classifyRideUploadFailure(error)).toEqual({
+      kind: 'RETRYABLE',
+      retryAfterSeconds: 5,
+      errorCode: 'NETWORK_ERROR',
+    });
+  });
+
   it('does not retry an unexpected client programming error forever', () => {
     expect(classifyRideUploadFailure(new Error('mapper defect'))).toEqual({
       kind: 'TERMINAL',

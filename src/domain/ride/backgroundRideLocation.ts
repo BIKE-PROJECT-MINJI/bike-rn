@@ -4,13 +4,14 @@ import { appendRidePointsToQueue, loadActiveRideDraft, updateRideDraft } from '.
 import { markRideLocationError, type RidePointInput } from './rideQueueModel';
 
 export const RIDE_LOCATION_TASK_NAME = 'gaja-background-ride-location-v1';
+let collectionStartedThisRuntime = false;
 
 type RideLocationTaskData = {
   readonly locations: readonly Location.LocationObject[];
 };
 
 if (!TaskManager.isTaskDefined(RIDE_LOCATION_TASK_NAME)) {
-  TaskManager.defineTask<RideLocationTaskData>(RIDE_LOCATION_TASK_NAME, async ({ data, error }) => {
+  TaskManager.defineTask<RideLocationTaskData>(RIDE_LOCATION_TASK_NAME, async ({ data, error, executionInfo }) => {
     if (error !== null) {
       const failedDraft = loadActiveRideDraft();
       if (failedDraft !== null) {
@@ -23,13 +24,13 @@ if (!TaskManager.isTaskDefined(RIDE_LOCATION_TASK_NAME)) {
       return;
     }
     const points: RidePointInput[] = data.locations.map(toRidePointInput);
-    await appendRidePointsToQueue(draft.clientRideId, points);
+    await appendRidePointsToQueue(draft.clientRideId, points, executionInfo.eventId);
   });
 }
 
 export async function requestRideLocationPermissions(): Promise<'GRANTED' | 'FOREGROUND_DENIED' | 'BACKGROUND_DENIED'> {
   const foreground = await Location.requestForegroundPermissionsAsync();
-  if (foreground.status !== 'granted') {
+  if (!hasPreciseForegroundPermission(foreground)) {
     return 'FOREGROUND_DENIED';
   }
   const background = await Location.requestBackgroundPermissionsAsync();
@@ -37,13 +38,34 @@ export async function requestRideLocationPermissions(): Promise<'GRANTED' | 'FOR
 }
 
 export async function startBackgroundRideLocation(): Promise<void> {
-  const available = await Location.isBackgroundLocationAvailableAsync();
+  const [foreground, background, servicesEnabled, available] = await Promise.all([
+    Location.getForegroundPermissionsAsync(),
+    Location.getBackgroundPermissionsAsync(),
+    Location.hasServicesEnabledAsync(),
+    Location.isBackgroundLocationAvailableAsync(),
+  ]);
+  if (!hasPreciseForegroundPermission(foreground)) {
+    collectionStartedThisRuntime = false;
+    throw new RideLocationPermissionError('주행 기록을 계속하려면 정확한 위치 권한이 필요합니다.');
+  }
+  if (background.status !== 'granted') {
+    collectionStartedThisRuntime = false;
+    throw new RideLocationPermissionError('화면 잠금 중 기록을 위해 위치 권한을 항상 허용으로 바꿔 주세요.');
+  }
+  if (!servicesEnabled) {
+    collectionStartedThisRuntime = false;
+    throw new RideLocationServicesDisabledError();
+  }
   if (!available) {
+    collectionStartedThisRuntime = false;
     throw new BackgroundLocationUnavailableError();
   }
-  const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(RIDE_LOCATION_TASK_NAME);
-  if (alreadyStarted) {
-    return;
+  if (collectionStartedThisRuntime) {
+    const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(RIDE_LOCATION_TASK_NAME);
+    if (alreadyStarted) {
+      return;
+    }
+    collectionStartedThisRuntime = false;
   }
   await Location.startLocationUpdatesAsync(RIDE_LOCATION_TASK_NAME, {
     accuracy: Location.Accuracy.High,
@@ -60,6 +82,16 @@ export async function startBackgroundRideLocation(): Promise<void> {
       killServiceOnDestroy: false,
     },
   });
+  collectionStartedThisRuntime = true;
+}
+
+export async function restartBackgroundRideLocation(): Promise<void> {
+  if (collectionStartedThisRuntime) {
+    await startBackgroundRideLocation();
+    return;
+  }
+  collectionStartedThisRuntime = false;
+  await startBackgroundRideLocation();
 }
 
 export async function captureCurrentRideLocation(clientRideId: string): Promise<void> {
@@ -68,9 +100,13 @@ export async function captureCurrentRideLocation(clientRideId: string): Promise<
 }
 
 export async function stopBackgroundRideLocation(): Promise<void> {
-  const started = await Location.hasStartedLocationUpdatesAsync(RIDE_LOCATION_TASK_NAME);
-  if (started) {
-    await Location.stopLocationUpdatesAsync(RIDE_LOCATION_TASK_NAME);
+  try {
+    const started = await Location.hasStartedLocationUpdatesAsync(RIDE_LOCATION_TASK_NAME);
+    if (started) {
+      await Location.stopLocationUpdatesAsync(RIDE_LOCATION_TASK_NAME);
+    }
+  } finally {
+    collectionStartedThisRuntime = false;
   }
 }
 
@@ -81,12 +117,33 @@ class BackgroundLocationUnavailableError extends Error {
   }
 }
 
+class RideLocationPermissionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RideLocationPermissionError';
+  }
+}
+
+class RideLocationServicesDisabledError extends Error {
+  constructor() {
+    super('기기의 위치 서비스를 켠 뒤 주행 기록을 다시 연결해 주세요.');
+    this.name = 'RideLocationServicesDisabledError';
+  }
+}
+
 function normalizeNonNegative(value: number | null): number | null {
   return value !== null && value >= 0 ? value : null;
 }
 
 function normalizeBearing(value: number | null): number | null {
   return value !== null && value >= 0 && value < 360 ? value : null;
+}
+
+function hasPreciseForegroundPermission(permission: Location.LocationPermissionResponse): boolean {
+  if (permission.status !== 'granted') {
+    return false;
+  }
+  return permission.android?.accuracy !== 'coarse' && permission.android?.accuracy !== 'none';
 }
 
 function toRidePointInput(location: Location.LocationObject): RidePointInput {

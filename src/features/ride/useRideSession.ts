@@ -1,14 +1,17 @@
 import * as Crypto from 'expo-crypto';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import {
   captureCurrentRideLocation,
   requestRideLocationPermissions,
+  restartBackgroundRideLocation,
   startBackgroundRideLocation,
   stopBackgroundRideLocation,
 } from '../../domain/ride/backgroundRideLocation';
 import { fetchRideStatus, uploadRideDraft } from '../../domain/ride/rideApi';
 import {
   completeRideDraft,
+  createRideDraftIfQueueEmpty,
   discardRideDraft,
   listPendingRideDrafts,
   loadActiveRideDraft,
@@ -18,16 +21,21 @@ import {
   updateRideDraft,
 } from '../../domain/ride/localRideQueue';
 import {
+  createRideLifecycleGate,
+  pauseOrResumeRide,
+  queueRideForUpload,
+  reconcileRideLocationCollection,
+  type RideLifecycleDependencies,
+} from '../../domain/ride/rideLifecycle';
+import {
   createRideDraft,
-  finishRideDraft,
-  pauseRideDraft,
-  resumeRideDraft,
   rideElapsedMs,
   type RideDraft,
   type RideReceipt,
 } from '../../domain/ride/rideQueueModel';
 import { syncRideDraft, type RideSyncResult } from '../../domain/ride/rideSyncEngine';
 import { createRideSyncGate } from '../../domain/ride/rideSyncGate';
+import { createActiveReconcileScheduler } from './activeReconcileScheduler';
 
 export type RideSessionState = {
   readonly draft: RideDraft | null;
@@ -53,6 +61,9 @@ export function useRideSession(accessToken: string | null): RideSessionState & R
   const [message, setMessage] = useState('주행을 시작할 준비가 됐습니다.');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [syncGate] = useState(createRideSyncGate);
+  const [lifecycleGate] = useState(createRideLifecycleGate);
+  const startInFlight = useRef(false);
+  const reconcileInFlight = useRef<Promise<void> | null>(null);
 
   const refreshLocal = useCallback(() => {
     setDraft(listPendingRideDrafts().at(0) ?? null);
@@ -100,18 +111,21 @@ export function useRideSession(accessToken: string | null): RideSessionState & R
     };
   }, [refreshLocal]);
 
-  useEffect(() => {
-    const reconcile = async () => {
-      const active = loadActiveRideDraft();
-      if (active === null) {
-        return;
-      }
+  const reconcileLocalRide = useCallback(async (): Promise<void> => {
+    if (reconcileInFlight.current !== null) {
+      await reconcileInFlight.current;
+      return;
+    }
+    const reconcile = lifecycleGate.run(async () => {
       try {
-        if (active.status === 'RECORDING') {
-          await startBackgroundRideLocation();
-          setMessage('중단됐던 주행을 복구하고 위치 수집을 다시 연결했습니다.');
-        } else {
-          await stopBackgroundRideLocation();
+        const active = loadActiveRideDraft();
+        if (active?.status === 'RECORDING') {
+          setErrorMessage(null);
+        }
+        await reconcileRideLocationCollection(active, RIDE_RECOVERY_DEPENDENCIES);
+        if (active?.status === 'RECORDING') {
+          setMessage('중단됐던 주행을 복구했습니다. 위치 수집 재연결을 요청했고 새 위치를 확인 중입니다.');
+        } else if (active?.status === 'PAUSED') {
           setMessage('일시정지된 주행을 복구했습니다.');
         }
       } catch (error) {
@@ -121,9 +135,28 @@ export function useRideSession(accessToken: string | null): RideSessionState & R
       } finally {
         refreshLocal();
       }
+    });
+    reconcileInFlight.current = reconcile;
+    try {
+      await reconcile;
+    } finally {
+      if (reconcileInFlight.current === reconcile) {
+        reconcileInFlight.current = null;
+      }
+    }
+  }, [lifecycleGate, refreshLocal]);
+
+  useEffect(() => {
+    const scheduler = createActiveReconcileScheduler(reconcileLocalRide, () => AppState.currentState);
+    scheduler.onAppStateChange(AppState.currentState);
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      scheduler.onAppStateChange(nextState);
+    });
+    return () => {
+      scheduler.dispose();
+      subscription.remove();
     };
-    void reconcile();
-  }, [refreshLocal]);
+  }, [reconcileLocalRide]);
 
   useEffect(() => {
     if (draft === null || accessToken === null) {
@@ -140,105 +173,108 @@ export function useRideSession(accessToken: string | null): RideSessionState & R
   }, [accessToken, draft?.clientRideId, draft?.nextRetryAtMs, draft?.status, syncById]);
 
   const start = useCallback(async () => {
-    if (accessToken === null) {
-      setErrorMessage('내 정보 탭에서 로그인한 뒤 주행을 시작해 주세요.');
+    if (startInFlight.current) {
       return;
     }
-    if (listPendingRideDrafts().length > 0) {
-      setErrorMessage('먼저 저장 대기 중인 주행을 완료해 주세요.');
-      refreshLocal();
-      return;
-    }
-    setBusy(true);
-    setErrorMessage(null);
+    startInFlight.current = true;
     try {
-      const permission = await requestRideLocationPermissions();
-      if (permission !== 'GRANTED') {
-        setErrorMessage(
-          permission === 'FOREGROUND_DENIED'
-            ? '주행 기록을 시작하려면 정확한 위치 권한이 필요합니다.'
-            : '화면 잠금 중 기록을 위해 위치 권한을 항상 허용으로 바꿔 주세요.',
-        );
-        return;
-      }
-      const next = createRideDraft(`ride-${Crypto.randomUUID()}`, Date.now());
-      await saveRideDraft(next);
-      try {
-        await startBackgroundRideLocation();
-      } catch (error) {
-        await discardRideDraft(next.clientRideId);
-        throw error;
-      }
-      setDraft(next);
-      setMessage('주행 기록 중입니다. 화면을 잠가도 로컬에 계속 저장합니다.');
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : UNKNOWN_RIDE_ERROR_MESSAGE);
+      await lifecycleGate.run(async () => {
+        if (accessToken === null) {
+          setErrorMessage('내 정보 탭에서 로그인한 뒤 주행을 시작해 주세요.');
+          return;
+        }
+        if (listPendingRideDrafts().length > 0) {
+          setErrorMessage('먼저 저장 대기 중인 주행을 완료해 주세요.');
+          refreshLocal();
+          return;
+        }
+        setBusy(true);
+        setErrorMessage(null);
+        try {
+          const permission = await requestRideLocationPermissions();
+          if (permission !== 'GRANTED') {
+            setErrorMessage(
+              permission === 'FOREGROUND_DENIED'
+                ? '주행 기록을 시작하려면 정확한 위치 권한이 필요합니다.'
+                : '화면 잠금 중 기록을 위해 위치 권한을 항상 허용으로 바꿔 주세요.',
+            );
+            return;
+          }
+          const next = createRideDraft(`ride-${Crypto.randomUUID()}`, Date.now());
+          if (!(await createRideDraftIfQueueEmpty(next))) {
+            setErrorMessage('이미 시작했거나 저장 대기 중인 주행이 있습니다.');
+            refreshLocal();
+            return;
+          }
+          try {
+            await startBackgroundRideLocation();
+          } catch (error) {
+            await discardRideDraft(next.clientRideId);
+            throw error;
+          }
+          setDraft(next);
+          setMessage('주행 기록 중입니다. 화면을 잠가도 로컬에 계속 저장합니다.');
+        } catch (error) {
+          setErrorMessage(error instanceof Error ? error.message : UNKNOWN_RIDE_ERROR_MESSAGE);
+        } finally {
+          setBusy(false);
+        }
+      });
     } finally {
-      setBusy(false);
+      startInFlight.current = false;
     }
-  }, [accessToken, refreshLocal]);
+  }, [accessToken, lifecycleGate, refreshLocal]);
 
-  const togglePause = useCallback(async () => {
+  const togglePause = useCallback(async () => lifecycleGate.run(async () => {
     const active = loadActiveRideDraft();
-    if (active === null) {
-      return;
+    if (active !== null) {
+      setBusy(true);
+      setErrorMessage(null);
+      try {
+        const next = await pauseOrResumeRide(active, RIDE_LIFECYCLE_DEPENDENCIES);
+        setDraft(next);
+        setMessage(next.status === 'PAUSED' ? '주행 기록을 일시정지했습니다.' : '주행 기록을 다시 시작했습니다.');
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : UNKNOWN_RIDE_ERROR_MESSAGE);
+        refreshLocal();
+      } finally {
+        setBusy(false);
+      }
     }
-    let next: RideDraft | null;
-    if (active.status === 'RECORDING') {
-      await stopBackgroundRideLocation();
-      next = await updateRideDraft(active.clientRideId, (latest) => pauseRideDraft(latest, Date.now()));
-    } else {
-      await startBackgroundRideLocation();
-      next = await updateRideDraft(active.clientRideId, (latest) => resumeRideDraft(latest, Date.now()));
-    }
-    if (next === null) {
-      return;
-    }
-    setDraft(next);
-    setMessage(next.status === 'PAUSED' ? '주행 기록을 일시정지했습니다.' : '주행 기록을 다시 시작했습니다.');
-  }, []);
+  }), [lifecycleGate, refreshLocal]);
 
-  const finish = useCallback(async () => {
+  const finish = useCallback(async () => lifecycleGate.run(async () => {
     const active = loadActiveRideDraft();
     if (active === null) {
       return;
     }
     const finishRequestedAtMs = Date.now();
-    if (rideElapsedMs(active, finishRequestedAtMs) < 10_000 || active.routePoints.length === 0) {
-      setErrorMessage('10초 이상 주행하고 GPS 포인트가 수집된 뒤 종료해 주세요.');
+    if (rideElapsedMs(active, finishRequestedAtMs) < 10_000) {
+      setErrorMessage('10초 이상 주행한 뒤 종료해 주세요.');
       return;
     }
     setBusy(true);
     setErrorMessage(null);
     try {
-      let finalCaptureFailed = false;
-      try {
-        await captureCurrentRideLocation(active.clientRideId);
-      } catch (error) {
-        finalCaptureFailed = true;
-        setErrorMessage(
-          error instanceof Error ? `마지막 위치 확인 실패: ${error.message}` : '마지막 위치를 확인하지 못했습니다.',
-        );
-      }
-      await stopBackgroundRideLocation();
-      const endedAtMs = Date.now();
-      const queued = await updateRideDraft(active.clientRideId, (latest) => finishRideDraft(latest, endedAtMs));
-      if (queued === null) {
-        throw new MissingLocalRideError();
-      }
+      const result = await queueRideForUpload(active, RIDE_LIFECYCLE_DEPENDENCIES);
+      const { queued } = result;
       setDraft(queued);
       setMessage(
-        finalCaptureFailed
+        result.finalCaptureError !== null
           ? '주행은 로컬에 보존했습니다. 마지막 위치 확인 경고와 함께 서버 저장을 시작합니다.'
           : '주행을 로컬에 보존했습니다. 서버 저장을 시작합니다.',
       );
-      await syncById(queued.clientRideId);
+      if (result.collectionStopError !== null) {
+        setErrorMessage('주행은 저장됐지만 위치 서비스 종료를 확인하지 못했습니다. 앱을 다시 열어 상태를 정리해 주세요.');
+      } else if (result.finalCaptureError !== null) {
+        setErrorMessage(`마지막 위치 확인 실패: ${result.finalCaptureError.message}`);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : UNKNOWN_RIDE_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
-  }, [syncById]);
+  }), [lifecycleGate]);
 
   const retry = useCallback(async () => {
     if (draft !== null) {
@@ -279,9 +315,16 @@ function messageForSyncResult(result: RideSyncResult): string {
 
 const UNKNOWN_RIDE_ERROR_MESSAGE = '주행 처리 중 알 수 없는 오류가 발생했습니다.';
 
-class MissingLocalRideError extends Error {
-  constructor() {
-    super('로컬에서 저장 중인 주행을 찾을 수 없습니다.');
-    this.name = 'MissingLocalRideError';
-  }
-}
+const RIDE_LIFECYCLE_DEPENDENCIES: RideLifecycleDependencies = {
+  nowMs: Date.now,
+  captureCurrentLocation: captureCurrentRideLocation,
+  loadDraft: loadRideDraft,
+  updateDraft: updateRideDraft,
+  startCollection: startBackgroundRideLocation,
+  stopCollection: stopBackgroundRideLocation,
+};
+
+const RIDE_RECOVERY_DEPENDENCIES: RideLifecycleDependencies = {
+  ...RIDE_LIFECYCLE_DEPENDENCIES,
+  startCollection: restartBackgroundRideLocation,
+};

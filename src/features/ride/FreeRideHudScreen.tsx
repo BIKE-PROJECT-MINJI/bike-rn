@@ -21,11 +21,13 @@ export function FreeRideHudScreen() {
     enabled: accessToken !== null,
   });
   const isTracking = ride.draft?.status === 'RECORDING' || ride.draft?.status === 'PAUSED';
-  const needsLogin = accessToken === null || ride.draft?.status === 'FAILED_USER_ACTION';
+  const needsLogin = accessToken === null;
   const canRetry =
     ride.draft?.status === 'QUEUED' ||
     ride.draft?.status === 'UPLOADING' ||
-    ride.draft?.status === 'RETRY_WAIT';
+    ride.draft?.status === 'RETRY_WAIT' ||
+    (ride.draft?.status === 'FAILED_USER_ACTION' && accessToken !== null) ||
+    (ride.draft?.status === 'FAILED_TERMINAL' && ride.draft.lastErrorCode === 'UNEXPECTED_CLIENT_ERROR');
   const elapsedMs = ride.draft === null ? 0 : rideElapsedMs(ride.draft, ride.nowMs);
 
   return (
@@ -48,7 +50,7 @@ export function FreeRideHudScreen() {
         ) : null}
       </GajaCard>
 
-      <GajaCard title="주행 상태" subtitle={ride.draft ? `검증 ID ${ride.draft.clientRideId}` : '새 주행을 시작할 수 있습니다.'}>
+      <GajaCard title="주행 상태" subtitle={ride.draft ? '로컬 저장 ID가 생성되었습니다.' : '새 주행을 시작할 수 있습니다.'}>
         <View style={styles.metrics}>
           <Metric label="거리" value={formatHudDistance(ride.draft?.distanceMeters ?? 0)} />
           <Metric label="시간" value={formatHudDuration(elapsedMs)} />
@@ -75,7 +77,7 @@ export function FreeRideHudScreen() {
       </GajaCard>
 
       {ride.receipt ? (
-        <GajaCard title="최근 저장 완료" subtitle={`clientRideId ${ride.receipt.clientRideId}`}>
+        <GajaCard title="최근 저장 완료" subtitle="동일한 로컬 저장 ID로 서버 영수증을 확인했습니다.">
           <StatusBadge label="READY" tone="success" />
           <Text style={styles.meta}>서버 주행 기록 #{ride.receipt.rideRecordId}</Text>
           <Text style={styles.meta}>{ride.receipt.linkedCourseId ? `연결 코스 #${ride.receipt.linkedCourseId}` : '코스화 가능 상태'}</Text>

@@ -6,7 +6,7 @@ export type RideUploadFailure =
   | { readonly kind: 'TERMINAL'; readonly errorCode: string | null };
 
 export function classifyRideUploadFailure(error: unknown): RideUploadFailure {
-  if (error instanceof TypeError || (error instanceof Error && error.name === 'AbortError')) {
+  if (isNetworkOrTimeoutError(error)) {
     return { kind: 'RETRYABLE', retryAfterSeconds: 5, errorCode: 'NETWORK_ERROR' };
   }
   if (!(error instanceof ApiClientError)) {
@@ -23,4 +23,23 @@ export function classifyRideUploadFailure(error: unknown): RideUploadFailure {
     };
   }
   return { kind: 'TERMINAL', errorCode: error.errorCode };
+}
+
+function isNetworkOrTimeoutError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const candidate = error as { readonly name?: unknown; readonly message?: unknown };
+  const name = typeof candidate.name === 'string' ? candidate.name : '';
+  const message = typeof candidate.message === 'string' ? candidate.message.trim().toLowerCase() : '';
+  return (
+    name === 'AbortError' ||
+    message.includes('network request failed') ||
+    message.includes('failed to fetch') ||
+    message.includes('fetch failed') ||
+    message.includes('failed to connect') ||
+    message.includes('network error') ||
+    message.includes('timed out') ||
+    message.includes('timeout')
+  );
 }
