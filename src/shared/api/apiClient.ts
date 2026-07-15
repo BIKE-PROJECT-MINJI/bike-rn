@@ -44,9 +44,8 @@ export class ApiClientError extends Error {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), API_REQUEST_TIMEOUT_MS);
-  let response: Response;
   try {
-    response = await fetch(`${resolveApiBaseUrl()}${path}`, {
+    const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
       method: options.method ?? 'GET',
       headers: {
         Accept: 'application/json',
@@ -57,23 +56,42 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: abortController.signal,
     });
+    const text = await response.text();
+    const payload = parseResponsePayload(text, response);
+    if (!response.ok) {
+      const errorEnvelope = errorEnvelopeSchema.safeParse(payload);
+      const retryAfterHeader = parseRetryAfterSeconds(response.headers.get('Retry-After'));
+      throw new ApiClientError({
+        message: extractMessage(payload),
+        status: response.status,
+        errorCode: errorEnvelope.success ? errorEnvelope.data.data?.errorCode ?? null : null,
+        retryAfterSeconds:
+          retryAfterHeader ?? (errorEnvelope.success ? errorEnvelope.data.data?.retryAfterSeconds ?? null : null),
+      });
+    }
+    return payload as T;
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiClientError({
+        message: '서버 응답 시간이 초과되었습니다.',
+        status: null,
+        errorCode: 'REQUEST_TIMEOUT',
+      });
+    }
+    if (error instanceof TypeError) {
+      throw new ApiClientError({
+        message: '서버에 연결하지 못했습니다.',
+        status: null,
+        errorCode: 'NETWORK_ERROR',
+      });
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
-  const text = await response.text();
-  const payload = parseResponsePayload(text, response);
-  if (!response.ok) {
-    const errorEnvelope = errorEnvelopeSchema.safeParse(payload);
-    const retryAfterHeader = parseRetryAfterSeconds(response.headers.get('Retry-After'));
-    throw new ApiClientError({
-      message: extractMessage(payload),
-      status: response.status,
-      errorCode: errorEnvelope.success ? errorEnvelope.data.data?.errorCode ?? null : null,
-      retryAfterSeconds:
-        retryAfterHeader ?? (errorEnvelope.success ? errorEnvelope.data.data?.retryAfterSeconds ?? null : null),
-    });
-  }
-  return payload as T;
 }
 
 function parseResponsePayload(text: string, response: Response): unknown {

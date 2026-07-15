@@ -14,6 +14,7 @@ export type RemoteRideStatusResult = {
 
 export type RideSyncDependencies = {
   readonly nowMs: () => number;
+  readonly recoverRemote: (clientRideId: string) => Promise<RemoteRideStatusResult | null>;
   readonly saveRemote: (draft: RideDraft) => Promise<RemoteRideSaveResult>;
   readonly getRemoteStatus: (rideRecordId: number) => Promise<RemoteRideStatusResult>;
   readonly persist: (draft: RideDraft) => Promise<void>;
@@ -28,14 +29,23 @@ export type RideSyncResult =
   | { readonly status: 'FAILED_TERMINAL' };
 
 export async function syncRideDraft(draft: RideDraft, dependencies: RideSyncDependencies): Promise<RideSyncResult> {
+  let persistedAttempt = draft;
   try {
     if (draft.rideRecordId !== null) {
       const remoteStatus = await dependencies.getRemoteStatus(draft.rideRecordId);
       return applyRemoteStatus(draft, remoteStatus, dependencies);
     }
 
+    if (draft.attemptCount > 0) {
+      const recovered = await dependencies.recoverRemote(draft.clientRideId);
+      if (recovered !== null) {
+        return applyRemoteStatus(draft, recovered, dependencies);
+      }
+    }
+
     const uploading: RideDraft = { ...draft, status: 'UPLOADING', attemptCount: draft.attemptCount + 1 };
     await dependencies.persist(uploading);
+    persistedAttempt = uploading;
     const remote = await dependencies.saveRemote(uploading);
     return applyRemoteStatus(
       uploading,
@@ -46,11 +56,11 @@ export async function syncRideDraft(draft: RideDraft, dependencies: RideSyncDepe
     const failure = classifyRideUploadFailure(error);
     switch (failure.kind) {
       case 'RETRYABLE': {
-        const nextAttemptCount = draft.attemptCount + 1;
+        const nextAttemptCount = Math.max(draft.attemptCount + 1, persistedAttempt.attemptCount);
         const retryDelaySeconds = Math.max(failure.retryAfterSeconds, exponentialBackoffSeconds(nextAttemptCount));
         const retryAtMs = dependencies.nowMs() + retryDelaySeconds * 1000;
         await dependencies.persist({
-          ...draft,
+          ...persistedAttempt,
           status: 'RETRY_WAIT',
           attemptCount: nextAttemptCount,
           nextRetryAtMs: retryAtMs,
@@ -59,10 +69,10 @@ export async function syncRideDraft(draft: RideDraft, dependencies: RideSyncDepe
         return { status: 'RETRY_WAIT', retryAtMs };
       }
       case 'USER_ACTION':
-        await dependencies.persist({ ...draft, status: 'FAILED_USER_ACTION', lastErrorCode: failure.errorCode });
+        await dependencies.persist({ ...persistedAttempt, status: 'FAILED_USER_ACTION', lastErrorCode: failure.errorCode });
         return { status: 'FAILED_USER_ACTION' };
       case 'TERMINAL':
-        await dependencies.persist({ ...draft, status: 'FAILED_TERMINAL', lastErrorCode: failure.errorCode });
+        await dependencies.persist({ ...persistedAttempt, status: 'FAILED_TERMINAL', lastErrorCode: failure.errorCode });
         return { status: 'FAILED_TERMINAL' };
     }
   }

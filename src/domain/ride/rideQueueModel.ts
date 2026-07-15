@@ -22,8 +22,14 @@ const rideDraftStatusSchema = z.enum([
   'FAILED_TERMINAL',
 ]);
 
+const rideModeSchema = z.enum(['FREE', 'COURSE', 'PARTY']);
+
 const rideDraftSchema = z.object({
   clientRideId: z.string().min(1).max(80),
+  mode: rideModeSchema.default('FREE'),
+  courseId: z.number().int().positive().nullable().default(null),
+  courseTitle: z.string().min(1).max(200).nullable().default(null),
+  partyId: z.number().int().positive().nullable().default(null),
   status: rideDraftStatusSchema,
   startedAtIso: z.iso.datetime({ offset: true }),
   endedAtIso: z.iso.datetime({ offset: true }).nullable(),
@@ -43,7 +49,14 @@ const rideDraftSchema = z.object({
 export type RidePoint = z.infer<typeof ridePointSchema>;
 export type RideDraft = z.infer<typeof rideDraftSchema>;
 export type RideDraftStatus = z.infer<typeof rideDraftStatusSchema>;
+export type RideMode = z.infer<typeof rideModeSchema>;
 export type RidePointInput = Omit<RidePoint, 'pointOrder'>;
+export type RideStartContext = {
+  readonly mode: RideMode;
+  readonly courseId: number | null;
+  readonly courseTitle: string | null;
+  readonly partyId: number | null;
+};
 
 export type RideReceipt = {
   readonly clientRideId: string;
@@ -53,9 +66,14 @@ export type RideReceipt = {
   readonly linkedCourseId: number | null;
 };
 
-export function createRideDraft(clientRideId: string, startedAtMs: number): RideDraft {
+export function createRideDraft(
+  clientRideId: string,
+  startedAtMs: number,
+  context: RideStartContext = { mode: 'FREE', courseId: null, courseTitle: null, partyId: null },
+): RideDraft {
   return rideDraftSchema.parse({
     clientRideId,
+    ...context,
     status: 'RECORDING',
     startedAtIso: new Date(startedAtMs).toISOString(),
     endedAtIso: null,
@@ -87,6 +105,10 @@ export function finishRideDraft(draft: RideDraft, endedAtMs: number): RideDraft 
     nextRetryAtMs: null,
     lastErrorCode: null,
   });
+}
+
+export function canManuallyRetryRide(draft: RideDraft): boolean {
+  return draft.status === 'FAILED_USER_ACTION';
 }
 
 export function appendRidePoint(draft: RideDraft, point: RidePointInput): RideDraft {

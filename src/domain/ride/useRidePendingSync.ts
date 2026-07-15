@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { fetchRideStatus, uploadRideDraft } from './rideApi';
+import { fetchRideStatus, recoverRideStatus, uploadRideDraft } from './rideApi';
 import {
   completeRideDraft,
   listPendingRideDrafts,
@@ -63,6 +63,7 @@ export function useRidePendingSync(
         const runSync = () =>
           syncRideDraft(current, {
             nowMs: Date.now,
+            recoverRemote: (clientRideId) => recoverRideStatus(clientRideId, accessToken),
             saveRemote: (queued) => uploadRideDraft(queued, accessToken),
             getRemoteStatus: (rideRecordId) => fetchRideStatus(rideRecordId, accessToken),
             persist: saveRideDraft,

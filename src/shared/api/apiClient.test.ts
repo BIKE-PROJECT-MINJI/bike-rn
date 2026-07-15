@@ -33,6 +33,18 @@ describe('api client error contract', () => {
       }),
     );
   });
+
+  it('classifies a fetch transport failure as retryable network evidence', async () => {
+    jest.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Network request failed'));
+
+    await expect(apiRequest('/health')).rejects.toEqual(
+      new ApiClientError({
+        message: '서버에 연결하지 못했습니다.',
+        status: null,
+        errorCode: 'NETWORK_ERROR',
+      }),
+    );
+  });
 });
 
 function responseOf(input: {

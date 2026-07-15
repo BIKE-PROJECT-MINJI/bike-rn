@@ -20,7 +20,7 @@ import {
   createRideDraft,
   rideElapsedMs,
   type RideDraft,
-  type RideReceipt,
+  type RideStartContext,
 } from '../../domain/ride/rideQueueModel';
 import {
   RIDE_LIFECYCLE_DEPENDENCIES,
@@ -28,26 +28,7 @@ import {
 } from '../../domain/ride/rideSessionDependencies';
 import { useRideSyncCoordinator } from '../../domain/ride/RideSyncContext';
 import { createActiveReconcileScheduler } from './activeReconcileScheduler';
-
-export type RideSessionState = {
-  readonly draft: RideDraft | null;
-  readonly pendingDrafts: readonly RideDraft[];
-  readonly receipt: RideReceipt | null;
-  readonly authenticated: boolean;
-  readonly nowMs: number;
-  readonly busy: boolean;
-  readonly message: string;
-  readonly errorMessage: string | null;
-  readonly elapsedMs: (draft: RideDraft) => number;
-};
-
-export type RideSessionActions = {
-  readonly start: () => Promise<void>;
-  readonly togglePause: () => Promise<void>;
-  readonly finish: () => Promise<void>;
-  readonly retry: () => Promise<void>;
-  readonly retryById: (clientRideId: string) => Promise<void>;
-};
+import type { RideSessionActions, RideSessionState } from './rideSessionTypes';
 
 export function useRideSession(_legacyAccessToken?: string | null): RideSessionState & RideSessionActions {
   const [nowMs, setNowMs] = useState(Date.now());
@@ -75,8 +56,10 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
   useEffect(() => {
     refreshLocal();
     const clockTimer = setInterval(() => setNowMs(Date.now()), 1_000);
+    const activeRideTimer = setInterval(refreshLocal, 2_000);
     return () => {
       clearInterval(clockTimer);
+      clearInterval(activeRideTimer);
     };
   }, [refreshLocal]);
 
@@ -127,7 +110,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
     };
   }, [reconcileLocalRide]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (context?: RideStartContext) => {
     if (startInFlight.current) {
       return;
     }
@@ -155,7 +138,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
             );
             return;
           }
-          const next = createRideDraft(`ride-${Crypto.randomUUID()}`, Date.now());
+          const next = createRideDraft(`ride-${Crypto.randomUUID()}`, Date.now(), context);
           if (!(await createRideDraftIfQueueEmpty(next))) {
             setErrorMessage('이미 진행 중인 주행이 있습니다.');
             refreshLocal();

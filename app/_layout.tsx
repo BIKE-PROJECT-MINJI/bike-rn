@@ -22,6 +22,7 @@ export default function RootLayout() {
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="pre-ride/[courseId]" options={{ title: '출발 확인' }} />
+            <Stack.Screen name="ai-route/create" options={{ title: 'AI 코스 만들기' }} />
             <Stack.Screen name="ride/free" options={{ headerShown: false }} />
           </Stack>
         </SafeAreaProvider>

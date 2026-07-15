@@ -22,7 +22,15 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "headers": {
+            "Cross-Origin-Embedder-Policy": "credentialless",
+            "Cross-Origin-Opener-Policy": "same-origin"
+          }
+        }
+      ],
       "expo-secure-store",
       "expo-asset",
       "expo-sqlite",
@@ -34,7 +42,8 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
-      ]
+      ],
+      "expo-font"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

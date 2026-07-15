@@ -3,6 +3,7 @@ import {
   appendRidePoints,
   createRideDraft,
   finishRideDraft,
+  canManuallyRetryRide,
   parsePersistedRideDraft,
   pauseRideDraft,
   resumeRideDraft,
@@ -10,6 +11,28 @@ import {
 } from './rideQueueModel';
 
 describe('ride queue model', () => {
+  it('persists course and party context across process recovery', () => {
+    const draft = createRideDraft('ride-party-001', 1_700_000_000_000, {
+      mode: 'PARTY', courseId: 31, courseTitle: '한강 평지 코스', partyId: 9,
+    });
+
+    const restored = parsePersistedRideDraft(JSON.stringify(draft));
+
+    expect(restored).toMatchObject({ mode: 'PARTY', courseId: 31, courseTitle: '한강 평지 코스', partyId: 9 });
+  });
+
+  it('defaults legacy drafts without ride context to free ride', () => {
+    const legacy = JSON.parse(JSON.stringify(createRideDraft('ride-legacy', 1_700_000_000_000))) as Record<string, unknown>;
+    delete legacy.mode;
+    delete legacy.courseId;
+    delete legacy.courseTitle;
+    delete legacy.partyId;
+
+    expect(parsePersistedRideDraft(JSON.stringify(legacy))).toMatchObject({
+      mode: 'FREE', courseId: null, courseTitle: null, partyId: null,
+    });
+  });
+
   it('keeps the same clientRideId after a queued ride is serialized and restored', () => {
     // Given
     const recording = createRideDraft('ride-device-001', 1_700_000_000_000);
@@ -47,6 +70,14 @@ describe('ride queue model', () => {
     // Then
     expect(restored.clientRideId).toBe('ride-stable-id');
     expect(restored.attemptCount).toBe(1);
+  });
+
+  it('allows manual retry only for a user-action failure', () => {
+    const queued = finishRideDraft(createRideDraft('ride-manual', 1_700_000_000_000), 1_700_000_010_000);
+
+    expect(canManuallyRetryRide({ ...queued, status: 'FAILED_USER_ACTION' })).toBe(true);
+    expect(canManuallyRetryRide({ ...queued, status: 'FAILED_TERMINAL' })).toBe(false);
+    expect(canManuallyRetryRide(queued)).toBe(false);
   });
 
   it('persists accepted samples incrementally and ignores samples while paused', () => {

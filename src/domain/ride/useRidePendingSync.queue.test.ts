@@ -30,6 +30,7 @@ const mockUploadRideDraft = jest.fn(async (draft: RideDraft) => {
 
 jest.mock('./rideApi', () => ({
   fetchRideStatus: jest.fn(),
+  recoverRideStatus: jest.fn().mockResolvedValue(null),
   uploadRideDraft: mockUploadRideDraft,
 }));
 jest.mock('./localRideQueue', () => ({

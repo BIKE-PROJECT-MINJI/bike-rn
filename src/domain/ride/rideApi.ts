@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { apiRequest } from '../../shared/api/apiClient';
+import { ApiClientError, apiRequest } from '../../shared/api/apiClient';
 import type { RideDraft } from './rideQueueModel';
 import type { RemoteRideSaveResult, RemoteRideStatusResult } from './rideSyncEngine';
 
@@ -98,6 +98,25 @@ export function buildRideSaveRequest(draft: RideDraft): RideSaveRequest {
 export async function fetchRideStatus(rideRecordId: number, accessToken: string): Promise<RemoteRideStatusResult> {
   const payload = await apiRequest<unknown>(`/api/v1/ride-records/${rideRecordId}`, { accessToken });
   return rideStatusResponseSchema.parse(payload).data;
+}
+
+export async function recoverRideStatus(
+  clientRideId: string,
+  accessToken: string,
+): Promise<RemoteRideStatusResult | null> {
+  try {
+    const payload = await apiRequest<unknown>('/api/v1/ride-records/receipt', {
+      method: 'POST',
+      accessToken,
+      body: { clientRideId },
+    });
+    return rideStatusResponseSchema.parse(payload).data;
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function fetchRideRecords(accessToken: string): Promise<readonly RideListItem[]> {
