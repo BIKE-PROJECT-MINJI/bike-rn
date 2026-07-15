@@ -1,19 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { loadAuthSession } from '../../domain/auth/authSessionStore';
 import { fetchCourseDetail, fetchCourseRoutePoints } from '../../domain/course/courseService';
-import { createRideParty, fetchRideParties, joinRideParty, leaveRideParty } from '../../domain/party/partyService';
-import type { RidePartyUiModel } from '../../domain/party/partyModels';
 import { GajaButton } from '../../shared/ui/GajaButton';
 import { GajaCard, StatusBadge } from '../../shared/ui/GajaCard';
 import { GajaScreen } from '../../shared/ui/GajaScreen';
 import { RoutePreviewMap } from '../../shared/ui/RoutePreviewMap';
 import { ErrorStateView, LoadingStateView } from '../../shared/ui/StateViews';
 import { GajaColors } from '../../shared/design/tokens';
+import { CoursePartySection } from './CoursePartySection';
+import { evaluatePreStart } from './preRidePolicyGate';
 
 export function PreRideScreen({ courseId }: { courseId: number }) {
-  const queryClient = useQueryClient();
   const courseQuery = useQuery({
     queryKey: ['course-detail', courseId],
     queryFn: () => fetchCourseDetail(courseId),
@@ -26,31 +25,12 @@ export function PreRideScreen({ courseId }: { courseId: number }) {
   });
   const authSessionQuery = useQuery({ queryKey: ['auth-session', 'pre-ride'], queryFn: loadAuthSession });
   const accessToken = authSessionQuery.data?.accessToken ?? null;
-  const partiesQuery = useQuery({
-    queryKey: ['ride-parties', courseId],
-    queryFn: () => fetchRideParties(courseId, accessToken),
-    enabled: courseId > 0 && Boolean(accessToken),
-  });
-  const invalidateParties = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['ride-parties', courseId] });
-  };
-  const createPartyMutation = useMutation({
-    mutationFn: () => createRideParty(courseId, `${courseQuery.data?.title ?? '코스'} 같이 타기`, accessToken),
-    onSuccess: invalidateParties,
-  });
-  const joinPartyMutation = useMutation({
-    mutationFn: (partyId: number) => joinRideParty(partyId, accessToken),
-    onSuccess: invalidateParties,
-  });
-  const leavePartyMutation = useMutation({
-    mutationFn: (partyId: number) => leaveRideParty(partyId, accessToken),
-    onSuccess: invalidateParties,
-  });
+  const startGateMutation = useMutation({ mutationFn: () => evaluatePreStart(courseId) });
   const routePoints = routePointsQuery.data ?? [];
   const firstPoint = routePoints[0];
   const lastPoint = routePoints.at(-1);
   const hasRoute = routePoints.length >= 2;
-  const partyError = createPartyMutation.error ?? joinPartyMutation.error ?? leavePartyMutation.error ?? partiesQuery.error;
+  const startEligible = startGateMutation.data?.startGateStatus === 'ELIGIBLE';
 
   return (
     <GajaScreen>
@@ -99,74 +79,77 @@ export function PreRideScreen({ courseId }: { courseId: number }) {
             />
           </>
         ) : null}
-        <GajaCard title="파티" subtitle="이 코스를 같이 탈 최소 파티를 만들고 참여 상태를 확인합니다.">
-          {!accessToken ? <StatusBadge label="로그인 필요" tone="warning" /> : null}
-          {accessToken ? (
-            <>
-              <GajaButton
-                label={createPartyMutation.isPending ? '파티 생성 중' : '파티 만들기'}
-                variant="secondary"
-                disabled={!courseQuery.data || createPartyMutation.isPending}
-                onPress={() => createPartyMutation.mutate()}
-              />
-              {partiesQuery.isPending ? <LoadingStateView message="파티를 확인하는 중입니다." /> : null}
-              {partiesQuery.data?.length === 0 ? <Text style={styles.routeSummaryBody}>아직 열린 파티가 없습니다.</Text> : null}
-              {partiesQuery.data?.map((party) => (
-                <PartyRow
-                  key={party.id}
-                  party={party}
-                  busy={joinPartyMutation.isPending || leavePartyMutation.isPending}
-                  onJoin={() => joinPartyMutation.mutate(party.id)}
-                  onLeave={() => leavePartyMutation.mutate(party.id)}
-                />
-              ))}
-            </>
-          ) : (
-            <Text style={styles.routeSummaryBody}>내 정보 탭에서 로그인하면 파티를 만들거나 참여할 수 있습니다.</Text>
-          )}
-          {partyError ? <Text style={styles.error}>{partyError.message}</Text> : null}
-        </GajaCard>
+        <CoursePartySection
+          courseId={courseId}
+          courseTitle={courseQuery.data?.title ?? null}
+          accessToken={accessToken}
+          onConfirmRide={(partyId) => requestRideStart(partyId)}
+        />
         <GajaButton
-          label="이 코스로 주행 시작"
-          disabled={!courseQuery.data || !hasRoute}
+          label={startGateMutation.isPending ? '출발 위치 확인 중' : startEligible ? '이 코스로 주행 시작' : '출발 위치 확인'}
+          disabled={!courseQuery.data || !hasRoute || startGateMutation.isPending}
           onPress={() => {
             const course = courseQuery.data;
             if (!course || !hasRoute) {
               return;
             }
-            router.push({ pathname: '/ride/free', params: { courseId: String(course.id), courseTitle: course.title } });
+            if (!startEligible) {
+              startGateMutation.mutate();
+              return;
+            }
+            requestRideStart();
           }}
         />
+        {startGateMutation.data ? (
+          <View style={styles.startGate}>
+            <StatusBadge
+              label={startGateLabel(startGateMutation.data.startGateStatus)}
+              tone={startEligible ? 'success' : 'warning'}
+            />
+            <Text style={styles.routeSummaryBody}>{startGateMutation.data.defaultMessage}</Text>
+          </View>
+        ) : null}
+        {startGateMutation.error ? <Text style={styles.error}>{startGateMutation.error.message}</Text> : null}
       </GajaCard>
     </GajaScreen>
   );
+
+  function requestRideStart(partyId?: number) {
+    const course = courseQuery.data;
+    if (!course || !hasRoute) {
+      return;
+    }
+    const navigate = () => router.push({
+      pathname: '/ride/free',
+      params: {
+        courseId: String(course.id),
+        courseTitle: course.title,
+        ...(partyId === undefined ? {} : { partyId: String(partyId) }),
+      },
+    });
+    if (startEligible) {
+      navigate();
+      return;
+    }
+    startGateMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.startGateStatus === 'ELIGIBLE') {
+          navigate();
+        }
+      },
+    });
+  }
 }
 
-function PartyRow({
-  party,
-  busy,
-  onJoin,
-  onLeave,
-}: {
-  party: RidePartyUiModel;
-  busy: boolean;
-  onJoin: () => void;
-  onLeave: () => void;
-}) {
-  const seatLabel = `${party.joinedCount}/${party.capacity}명`;
-  return (
-    <View style={styles.partyRow}>
-      <View style={styles.partyText}>
-        <Text style={styles.routeSummaryTitle}>{party.title}</Text>
-        <Text style={styles.routeSummaryBody}>{seatLabel}</Text>
-      </View>
-      {party.currentUserHost ? <StatusBadge label="호스트" tone="success" /> : null}
-      {!party.currentUserMember ? (
-        <GajaButton label="참여" variant="secondary" disabled={busy || party.joinedCount >= party.capacity} onPress={onJoin} />
-      ) : null}
-      {party.currentUserMember && !party.currentUserHost ? <GajaButton label="나가기" variant="secondary" disabled={busy} onPress={onLeave} /> : null}
-    </View>
-  );
+function startGateLabel(status: string): string {
+  switch (status) {
+    case 'ELIGIBLE':
+      return '출발 가능';
+    case 'BLOCKED':
+      return '출발점에서 멀리 있음';
+    default:
+      return 'GPS 확인 필요';
+  }
 }
 
 function formatCoordinate(value: number): string {
@@ -191,19 +174,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  partyRow: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: GajaColors.border,
-    padding: 12,
-    gap: 8,
-  },
-  partyText: {
-    gap: 4,
-  },
   error: {
     color: GajaColors.danger,
     fontSize: 12,
     lineHeight: 18,
   },
+  startGate: { gap: 6 },
 });

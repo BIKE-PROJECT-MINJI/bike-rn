@@ -1,0 +1,117 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
+import { router } from 'expo-router';
+import { StyleSheet, Text, View } from 'react-native';
+import { loadAuthSession } from '../../domain/auth/authSessionStore';
+import { fetchRideRecords } from '../../domain/ride/rideApi';
+import { listPendingRideDrafts } from '../../domain/ride/localRideQueue';
+import type { RideDraft } from '../../domain/ride/rideQueueModel';
+import { canManuallyRetryRide } from '../../domain/ride/rideQueueModel';
+import { useRideSyncCoordinator } from '../../domain/ride/RideSyncContext';
+import { formatHudDistance, formatHudDuration } from '../../domain/ride/rideTracking';
+import { GajaColors } from '../../shared/design/tokens';
+import { GajaButton } from '../../shared/ui/GajaButton';
+import { GajaCard, StatusBadge } from '../../shared/ui/GajaCard';
+import { GajaScreen } from '../../shared/ui/GajaScreen';
+import { EmptyStateView, ErrorStateView, LoadingStateView } from '../../shared/ui/StateViews';
+
+export function RecordsScreen() {
+  const rideSync = useRideSyncCoordinator();
+  const sessionQuery = useQuery({ queryKey: ['auth-session', 'records'], queryFn: loadAuthSession });
+  const accessToken = sessionQuery.data?.accessToken ?? null;
+  const pendingQuery = useQuery({
+    queryKey: ['pending-rides-records'],
+    queryFn: async () => listPendingRideDrafts(),
+    refetchInterval: 5_000,
+  });
+  const recordsQuery = useQuery({
+    queryKey: ['ride-records', 'records-tab'],
+    queryFn: () => fetchRideRecords(requireAccessToken(accessToken)),
+    enabled: accessToken !== null,
+  });
+  const hasNothing = (pendingQuery.data?.length ?? 0) === 0 && (recordsQuery.data?.length ?? 0) === 0;
+
+  return (
+    <GajaScreen>
+      <View style={styles.header}>
+        <Text style={styles.title}>기록</Text>
+        <Text style={styles.subtitle}>기기에 보관된 원본과 서버 처리 상태를 함께 확인합니다.</Text>
+      </View>
+      {pendingQuery.data?.map((draft) => (
+        <PendingRideCard
+          key={draft.clientRideId}
+          draft={draft}
+          retrying={rideSync.syncing}
+          canRetry={accessToken !== null && canManuallyRetryRide(draft)}
+          onRetry={() => void rideSync.syncById(draft.clientRideId)}
+        />
+      ))}
+      {!accessToken ? (
+        <GajaCard title="서버 기록을 보려면 로그인해 주세요">
+          <GajaButton label="마이로 이동" onPress={() => router.push('/(tabs)/profile')} />
+        </GajaCard>
+      ) : null}
+      {recordsQuery.isPending && accessToken ? <LoadingStateView message="저장된 기록을 불러오는 중입니다." /> : null}
+      {recordsQuery.error ? <ErrorStateView title="기록을 불러오지 못했어요" message={recordsQuery.error.message} onRetry={() => recordsQuery.refetch()} /> : null}
+      {recordsQuery.data?.map((record) => (
+        <GajaCard key={record.rideRecordId} title={`주행 기록 #${record.rideRecordId}`} subtitle={`${formatHudDistance(record.distanceM)} · ${formatHudDuration(record.durationSec * 1000)}`}>
+          <StatusBadge label={record.finalizationStatus} tone={record.finalizationStatus === 'READY' ? 'success' : record.finalizationStatus === 'FAILED' ? 'danger' : 'warning'} />
+        </GajaCard>
+      ))}
+      {hasNothing && !recordsQuery.isPending ? <EmptyStateView title="아직 기록이 없어요" message="자유주행을 시작하면 기기에 먼저 안전하게 저장됩니다." /> : null}
+    </GajaScreen>
+  );
+}
+
+function PendingRideCard({
+  draft,
+  retrying,
+  canRetry,
+  onRetry,
+}: {
+  readonly draft: RideDraft;
+  readonly retrying: boolean;
+  readonly canRetry: boolean;
+  readonly onRetry: () => void;
+}) {
+  const tone = draft.status === 'FAILED_TERMINAL' || draft.status === 'FAILED_USER_ACTION' ? 'danger' : 'warning';
+  return (
+    <GajaCard title="기기 보관 기록" subtitle={`${formatHudDistance(draft.distanceMeters)} · ${draft.routePoints.length}개 위치`}>
+      <View style={styles.pendingRow}>
+        <Ionicons name="phone-portrait-outline" size={20} color={GajaColors.primary} />
+        <StatusBadge label={draft.status} tone={tone} />
+      </View>
+      <Text style={styles.pendingMeta}>서버 처리가 끝날 때까지 원본을 지우지 않습니다.</Text>
+      {canRetry ? (
+        <GajaButton
+          label={retrying ? '다시 저장 중' : '로그인 확인 후 다시 저장'}
+          variant="secondary"
+          disabled={retrying}
+          onPress={onRetry}
+        />
+      ) : null}
+    </GajaCard>
+  );
+}
+
+function requireAccessToken(accessToken: string | null): string {
+  if (accessToken === null) {
+    throw new MissingAccessTokenError();
+  }
+  return accessToken;
+}
+
+class MissingAccessTokenError extends Error {
+  constructor() {
+    super('로그인이 필요합니다.');
+    this.name = 'MissingAccessTokenError';
+  }
+}
+
+const styles = StyleSheet.create({
+  header: { gap: 6 },
+  title: { color: GajaColors.textPrimary, fontSize: 28, fontWeight: '900' },
+  subtitle: { color: GajaColors.textSecondary, fontSize: 14, lineHeight: 20 },
+  pendingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pendingMeta: { color: GajaColors.textMuted, fontSize: 12, lineHeight: 18 },
+});

@@ -11,24 +11,24 @@ const policyDataSchema = z.object({
   phase: z.string().optional().default('UNKNOWN'),
   startGate: z
     .object({
-      status: z.string().optional().default('UNKNOWN'),
+      status: z.enum(['ELIGIBLE', 'BLOCKED', 'UNDETERMINED']),
     })
     .optional()
-    .default({ status: 'UNKNOWN' }),
+    .default({ status: 'UNDETERMINED' }),
   offRoute: z
     .object({
-      status: z.string().optional().default('UNKNOWN'),
+      status: z.enum(['ON_ROUTE', 'CANDIDATE', 'WARNING', 'UNDETERMINED']),
       distanceM: nullableNumberSchema,
     })
     .optional()
-    .default({ status: 'UNKNOWN' }),
+    .default({ status: 'UNDETERMINED' }),
   completion: z
     .object({
-      status: z.string().optional().default('UNKNOWN'),
+      status: z.enum(['IN_PROGRESS', 'ELIGIBLE', 'UNDETERMINED']),
       coveragePercent: nullableNumberSchema,
     })
     .optional()
-    .default({ status: 'UNKNOWN' }),
+    .default({ status: 'UNDETERMINED' }),
   progress: z
     .object({
       distanceAlongRouteM: nullableNumberSchema,

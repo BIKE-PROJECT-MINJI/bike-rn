@@ -30,15 +30,26 @@ export function buildHomeAiRouteRequest(
         }
       : {};
   const routePreference = resolveRoutePreference(routePrompt);
+  const normalizedPrompt = routePrompt.trim();
   return {
     lat: start.lat,
     lon: start.lon,
-    destinationLabel: destination?.label ?? destinationQuery,
+    destinationLabel: destination?.label ?? '',
     rideStyle: routePreference.rideStyle,
     elevationPreference: routePreference.elevationPreference,
-    textIntent: routePrompt.trim().length > 0 ? routePrompt.trim() : undefined,
+    ...(normalizedPrompt.length > 0 ? { textIntent: normalizedPrompt } : {}),
     ...destinationCoordinates,
   };
+}
+
+export function destinationSelectionError(
+  destinationQuery: string,
+  destination: HomeRouteDestination | null,
+): string | null {
+  if (destinationQuery.trim().length > 0 && destination === null) {
+    return '검색 결과에서 목적지를 선택하거나 입력을 지워 주세요.';
+  }
+  return null;
 }
 
 function resolveRoutePreference(routePrompt: string): { readonly rideStyle: string; readonly elevationPreference: string } {
