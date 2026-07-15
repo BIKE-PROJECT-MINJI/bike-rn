@@ -36,6 +36,8 @@ const rideDraftSchema = z.object({
   lastErrorCode: z.string().nullable(),
   lastLocationErrorCode: z.string().nullable().default(null),
   rideRecordId: z.number().int().positive().nullable(),
+  finalizationStartedAtMs: z.number().int().nonnegative().nullable().default(null),
+  lastFinalizationPollAtMs: z.number().int().nonnegative().nullable().default(null),
 });
 
 export type RidePoint = z.infer<typeof ridePointSchema>;
@@ -66,6 +68,8 @@ export function createRideDraft(clientRideId: string, startedAtMs: number): Ride
     lastErrorCode: null,
     lastLocationErrorCode: null,
     rideRecordId: null,
+    finalizationStartedAtMs: null,
+    lastFinalizationPollAtMs: null,
   });
 }
 

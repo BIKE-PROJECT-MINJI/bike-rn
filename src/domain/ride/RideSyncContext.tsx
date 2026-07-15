@@ -1,0 +1,54 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { loadAuthSession } from '../auth/authSessionStore';
+import { useRidePendingSync, type RidePendingSyncState } from './useRidePendingSync';
+
+export type RideSyncCoordinatorState = RidePendingSyncState & {
+  readonly accessToken: string | null;
+  readonly message: string;
+  readonly errorMessage: string | null;
+  readonly setMessage: (message: string) => void;
+  readonly setErrorMessage: (message: string | null) => void;
+};
+
+const RideSyncContext = createContext<RideSyncCoordinatorState | null>(null);
+
+export function RideSyncProvider({ children }: { readonly children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const sessionQuery = useQuery({ queryKey: ['auth-session'], queryFn: loadAuthSession });
+  const accessToken = sessionQuery.data?.accessToken ?? null;
+  const [message, setMessage] = useState('주행을 시작할 준비가 됐습니다.');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const pendingSync = useRidePendingSync(accessToken, setMessage, setErrorMessage);
+
+  useEffect(() => {
+    queryClient.setQueryData(['pending-rides-home'], pendingSync.pendingDrafts);
+    queryClient.setQueryData(['pending-rides-records'], pendingSync.pendingDrafts);
+  }, [pendingSync.pendingDrafts, queryClient]);
+
+  const value = useMemo<RideSyncCoordinatorState>(() => ({
+    ...pendingSync,
+    accessToken,
+    message,
+    errorMessage,
+    setMessage,
+    setErrorMessage,
+  }), [accessToken, errorMessage, message, pendingSync]);
+
+  return <RideSyncContext.Provider value={value}>{children}</RideSyncContext.Provider>;
+}
+
+export function useRideSyncCoordinator(): RideSyncCoordinatorState {
+  const context = useContext(RideSyncContext);
+  if (context === null) {
+    throw new MissingRideSyncProviderError();
+  }
+  return context;
+}
+
+class MissingRideSyncProviderError extends Error {
+  constructor() {
+    super('RideSyncProvider가 앱 루트에 필요합니다.');
+    this.name = 'MissingRideSyncProviderError';
+  }
+}

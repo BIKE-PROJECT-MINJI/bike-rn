@@ -1,4 +1,3 @@
-import * as SQLite from 'expo-sqlite';
 import {
   appendRidePointsFromOrder,
   parsePersistedRideDraft,
@@ -6,49 +5,19 @@ import {
   type RideDraft,
   type RidePoint,
   type RidePointInput,
-  type RideReceipt,
 } from './rideQueueModel';
+import {
+  deleteRidePayloadInternal,
+  ensureRideQueueTables,
+  rideQueueDatabase as database,
+} from './rideQueueDatabase';
 
-const database = SQLite.openDatabaseSync('gaja-ride-queue.db');
+export { ensureRideQueueTables } from './rideQueueDatabase';
+export { completeRideDraft, loadLatestRideReceipt } from './rideReceiptStore';
 
 type DraftPayloadRow = { readonly client_ride_id: string; readonly payload: string };
 type PointPayloadRow = { readonly payload: string };
 type LatestPointPayloadRow = { readonly point_order: number; readonly payload: string };
-type PendingCountRow = { readonly pending_count: number };
-
-export function ensureRideQueueTables(): void {
-  database.execSync(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS ride_outbox (
-      client_ride_id TEXT PRIMARY KEY NOT NULL,
-      payload TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS ride_points (
-      client_ride_id TEXT NOT NULL,
-      point_order INTEGER NOT NULL,
-      payload TEXT NOT NULL,
-      PRIMARY KEY (client_ride_id, point_order)
-    );
-    CREATE TABLE IF NOT EXISTS ride_receipts (
-      client_ride_id TEXT PRIMARY KEY NOT NULL,
-      ride_record_id INTEGER NOT NULL,
-      status TEXT NOT NULL,
-      completed_at INTEGER NOT NULL,
-      linked_course_id INTEGER
-    );
-    CREATE TABLE IF NOT EXISTS ride_location_events (
-      client_ride_id TEXT NOT NULL,
-      event_id TEXT NOT NULL,
-      PRIMARY KEY (client_ride_id, event_id)
-    );
-    CREATE TABLE IF NOT EXISTS ride_point_keys (
-      client_ride_id TEXT NOT NULL,
-      point_key TEXT NOT NULL,
-      PRIMARY KEY (client_ride_id, point_key)
-    );
-  `);
-}
 
 export async function saveRideDraft(draft: RideDraft): Promise<void> {
   ensureRideQueueTables();
@@ -59,8 +28,14 @@ export async function createRideDraftIfQueueEmpty(draft: RideDraft): Promise<boo
   ensureRideQueueTables();
   let created = false;
   database.withTransactionSync(() => {
-    const row = database.getFirstSync<PendingCountRow>('SELECT COUNT(*) AS pending_count FROM ride_outbox');
-    if ((row?.pending_count ?? 0) > 0) {
+    const rows = database.getAllSync<DraftPayloadRow>(
+      'SELECT client_ride_id, payload FROM ride_outbox ORDER BY updated_at DESC',
+    );
+    const hasActiveRide = rows.some((row) => {
+      const status = parsePersistedRideDraft(row.payload).status;
+      return status === 'RECORDING' || status === 'PAUSED';
+    });
+    if (hasActiveRide) {
       return;
     }
     saveRideDraftInternal(draft);
@@ -149,53 +124,9 @@ export function listPendingRideDrafts(): readonly RideDraft[] {
   return rows.map((row) => assembleRideDraft(row.client_ride_id, parsePersistedRideDraft(row.payload)));
 }
 
-export async function completeRideDraft(receipt: RideReceipt): Promise<void> {
-  ensureRideQueueTables();
-  database.withTransactionSync(() => {
-    database.runSync(
-      `INSERT INTO ride_receipts (client_ride_id, ride_record_id, status, completed_at, linked_course_id)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(client_ride_id) DO UPDATE SET
-         ride_record_id = excluded.ride_record_id,
-         status = excluded.status,
-         completed_at = excluded.completed_at,
-         linked_course_id = excluded.linked_course_id`,
-      receipt.clientRideId,
-      receipt.rideRecordId,
-      receipt.status,
-      receipt.completedAtMs,
-      receipt.linkedCourseId,
-    );
-    deleteRidePayloadInternal(receipt.clientRideId);
-  });
-}
-
 export async function discardRideDraft(clientRideId: string): Promise<void> {
   ensureRideQueueTables();
   database.withTransactionSync(() => deleteRidePayloadInternal(clientRideId));
-}
-
-export function loadLatestRideReceipt(): RideReceipt | null {
-  ensureRideQueueTables();
-  const row = database.getFirstSync<{
-    readonly client_ride_id: string;
-    readonly ride_record_id: number;
-    readonly completed_at: number;
-    readonly linked_course_id: number | null;
-  }>(
-    `SELECT client_ride_id, ride_record_id, completed_at, linked_course_id
-     FROM ride_receipts ORDER BY completed_at DESC LIMIT 1`,
-  );
-  if (row === null) {
-    return null;
-  }
-  return {
-    clientRideId: row.client_ride_id,
-    rideRecordId: row.ride_record_id,
-    status: 'READY',
-    completedAtMs: row.completed_at,
-    linkedCourseId: row.linked_course_id,
-  };
 }
 
 function loadRideDraftInternal(clientRideId: string): RideDraft | null {
@@ -294,11 +225,4 @@ function mergePoints(stored: readonly RidePoint[], embedded: readonly RidePoint[
     byOrder.set(point.pointOrder, point);
   }
   return [...byOrder.values()].sort((left, right) => left.pointOrder - right.pointOrder);
-}
-
-function deleteRidePayloadInternal(clientRideId: string): void {
-  database.runSync('DELETE FROM ride_location_events WHERE client_ride_id = ?', clientRideId);
-  database.runSync('DELETE FROM ride_point_keys WHERE client_ride_id = ?', clientRideId);
-  database.runSync('DELETE FROM ride_points WHERE client_ride_id = ?', clientRideId);
-  database.runSync('DELETE FROM ride_outbox WHERE client_ride_id = ?', clientRideId);
 }

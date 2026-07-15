@@ -79,7 +79,16 @@ async function applyRemoteStatus(
 ): Promise<RideSyncResult> {
   switch (remote.status) {
     case 'FINALIZING':
-      await dependencies.persist({ ...draft, status: 'FINALIZING', rideRecordId: remote.rideRecordId });
+      {
+        const polledAtMs = dependencies.nowMs();
+        await dependencies.persist({
+          ...draft,
+          status: 'FINALIZING',
+          rideRecordId: remote.rideRecordId,
+          finalizationStartedAtMs: draft.finalizationStartedAtMs ?? polledAtMs,
+          lastFinalizationPollAtMs: polledAtMs,
+        });
+      }
       return { status: 'FINALIZING', rideRecordId: remote.rideRecordId };
     case 'READY':
       await dependencies.complete({

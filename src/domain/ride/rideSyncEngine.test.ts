@@ -30,6 +30,12 @@ describe('ride sync engine', () => {
       expect(result.rideRecordId).toBe(41);
     }
     expect(saved.at(-1)?.clientRideId).toBe('ride-device-001');
+    expect(saved.at(-1)).toEqual(
+      expect.objectContaining({
+        finalizationStartedAtMs: 1_700_000_061_000,
+        lastFinalizationPollAtMs: 1_700_000_061_000,
+      }),
+    );
   });
 
   it('removes the upload payload only after READY and writes a receipt', async () => {
