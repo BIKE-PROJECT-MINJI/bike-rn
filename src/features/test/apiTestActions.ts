@@ -211,7 +211,7 @@ function action(
 
 function summarizePayload(payload: unknown): string {
   if (payload instanceof Error) {
-    return payload.message;
+    return redactSensitiveText(payload.message);
   }
   const data = extractData(payload);
   if (Array.isArray(data)) {
@@ -222,7 +222,53 @@ function summarizePayload(payload: unknown): string {
 
 function stringifyPayload(payload: unknown): string {
   if (payload instanceof Error) {
-    return payload.message;
+    return redactSensitiveText(payload.message);
   }
-  return JSON.stringify(payload, null, 2);
+  return JSON.stringify(redactSensitiveValue(payload), null, 2);
+}
+
+const SENSITIVE_KEYS = new Set([
+  'accesstoken',
+  'refreshtoken',
+  'sockettoken',
+  'token',
+  'authorization',
+  'cookie',
+  'email',
+  'password',
+  'secret',
+  'apikey',
+  'lat',
+  'lon',
+  'latitude',
+  'longitude',
+  'routepoints',
+  'coordinates',
+]);
+
+function redactSensitiveValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return redactSensitiveText(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveValue);
+  }
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      SENSITIVE_KEYS.has(key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase())
+        ? '[REDACTED]'
+        : redactSensitiveValue(nestedValue),
+    ]),
+  );
+}
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED]')
+    .replace(/\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED]');
 }

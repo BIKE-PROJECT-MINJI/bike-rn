@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { useMemo } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import '../src/domain/ride/backgroundRideLocation';
 import { GajaColors } from '../src/shared/design/tokens';
 
 export default function RootLayout() {
