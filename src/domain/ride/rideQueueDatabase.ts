@@ -1,10 +1,71 @@
 import * as SQLite from 'expo-sqlite';
 
 export const rideQueueDatabase = SQLite.openDatabaseSync('gaja-ride-queue.db');
+export const RIDE_QUEUE_SCHEMA_VERSION = 1;
+
+type SchemaVersionRow = { readonly user_version: number };
+type SchemaMigration = {
+  readonly targetVersion: number;
+  readonly apply: () => void;
+};
+
+let schemaReady = false;
+
+const schemaMigrations: readonly SchemaMigration[] = [
+  { targetVersion: 1, apply: createVersion1Schema },
+];
 
 export function ensureRideQueueTables(): void {
+  if (schemaReady) {
+    return;
+  }
+  validateRideQueueMigrationTargets(
+    schemaMigrations.map((migration) => migration.targetVersion),
+    RIDE_QUEUE_SCHEMA_VERSION,
+  );
+  let currentVersion = readSchemaVersion();
+  if (currentVersion > RIDE_QUEUE_SCHEMA_VERSION) {
+    throw new IncompatibleRideQueueSchemaError();
+  }
+  rideQueueDatabase.execSync('PRAGMA journal_mode = WAL;');
+  for (const migration of schemaMigrations) {
+    if (migration.targetVersion <= currentVersion) {
+      continue;
+    }
+    rideQueueDatabase.withTransactionSync(() => {
+      migration.apply();
+      rideQueueDatabase.execSync(`PRAGMA user_version = ${migration.targetVersion};`);
+    });
+    currentVersion = migration.targetVersion;
+  }
+  if (currentVersion !== RIDE_QUEUE_SCHEMA_VERSION) {
+    throw new InvalidRideQueueMigrationChainError();
+  }
+  schemaReady = true;
+}
+
+export function validateRideQueueMigrationTargets(targetVersions: readonly number[], schemaVersion: number): void {
+  if (targetVersions.length !== schemaVersion) {
+    throw new InvalidRideQueueMigrationChainError();
+  }
+  targetVersions.forEach((targetVersion, index) => {
+    if (targetVersion !== index + 1) {
+      throw new InvalidRideQueueMigrationChainError();
+    }
+  });
+}
+
+function readSchemaVersion(): number {
+  const row = rideQueueDatabase.getFirstSync<SchemaVersionRow>('PRAGMA user_version;');
+  const version = row?.user_version ?? 0;
+  if (!Number.isInteger(version) || version < 0) {
+    throw new CorruptedRideQueueSchemaError();
+  }
+  return version;
+}
+
+function createVersion1Schema(): void {
   rideQueueDatabase.execSync(`
-    PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS ride_outbox (
       client_ride_id TEXT PRIMARY KEY NOT NULL,
       payload TEXT NOT NULL,
@@ -34,6 +95,27 @@ export function ensureRideQueueTables(): void {
       PRIMARY KEY (client_ride_id, point_key)
     );
   `);
+}
+
+export class IncompatibleRideQueueSchemaError extends Error {
+  constructor() {
+    super('현재 앱보다 새로운 주행 저장소 버전입니다. 앱을 업데이트한 뒤 다시 시도해 주세요.');
+    this.name = 'IncompatibleRideQueueSchemaError';
+  }
+}
+
+export class CorruptedRideQueueSchemaError extends Error {
+  constructor() {
+    super('주행 저장소 버전 정보가 손상되었습니다. 원본을 삭제하지 말고 복구가 필요합니다.');
+    this.name = 'CorruptedRideQueueSchemaError';
+  }
+}
+
+export class InvalidRideQueueMigrationChainError extends Error {
+  constructor() {
+    super('주행 저장소 migration 버전은 1부터 현재 버전까지 중복 없이 연속되어야 합니다.');
+    this.name = 'InvalidRideQueueMigrationChainError';
+  }
 }
 
 export function deleteRidePayloadInternal(clientRideId: string): void {
