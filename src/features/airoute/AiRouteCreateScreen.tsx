@@ -36,6 +36,9 @@ export function AiRouteCreateScreen() {
       if (destinationError !== null) {
         throw new DestinationSelectionRequiredError(destinationError);
       }
+      if (selectedDestination === null) {
+        throw new DestinationSelectionRequiredError('현재 베타에서는 목적지를 먼저 선택해 주세요.');
+      }
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== 'granted') {
         throw new LocationPermissionError();
@@ -43,7 +46,7 @@ export function AiRouteCreateScreen() {
       const location = await Location.getCurrentPositionAsync({});
       const start = { lat: location.coords.latitude, lon: location.coords.longitude };
       return createAiRouteSession(
-        buildHomeAiRouteRequest(start, selectedDestination, destinationQuery, routePrompt),
+        buildHomeAiRouteRequest(start, selectedDestination, routePrompt),
         accessToken,
       );
     },
@@ -91,7 +94,7 @@ export function AiRouteCreateScreen() {
     <GajaScreen>
       <View style={styles.header}>
         <Text style={styles.title}>AI 코스 만들기</Text>
-        <Text style={styles.subtitle}>목적지는 선택 사항입니다. 원하는 주행 분위기를 구체적으로 적어 주세요.</Text>
+        <Text style={styles.subtitle}>현재 베타에서는 목적지를 먼저 선택해 주세요. 출발점으로 돌아오는 순환 코스는 준비 중입니다.</Text>
       </View>
       <TextInput
         value={destinationQuery}
