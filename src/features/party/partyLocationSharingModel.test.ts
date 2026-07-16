@@ -2,6 +2,7 @@ import { ApiClientError } from '../../shared/api/apiClient';
 import type { RidePartyLocation } from '../../domain/party/partyModels';
 import {
   partyReconnectDelayMs,
+  partySocketTerminalMessage,
   shouldReconnectPartySocket,
   shouldRetryPartyLocationError,
   toPartyLocationPayload,
@@ -51,6 +52,18 @@ describe('party location sharing model', () => {
     expect(shouldReconnectPartySocket(1000)).toBe(false);
     expect(shouldReconnectPartySocket(1008)).toBe(false);
     expect(shouldReconnectPartySocket(1006)).toBe(true);
+    expect(shouldReconnectPartySocket(1001)).toBe(false);
+    expect(shouldReconnectPartySocket(1011)).toBe(false);
+  });
+
+  it('treats 1008 member and party revocations as terminal user-visible outcomes', () => {
+    expect(partySocketTerminalMessage(1008, 'member-left')).toBe(
+      '파티 참여가 종료되어 위치 공유를 멈췄습니다.',
+    );
+    expect(partySocketTerminalMessage(1008, 'party-canceled')).toBe(
+      '파티가 종료되어 위치 공유를 멈췄습니다.',
+    );
+    expect(partySocketTerminalMessage(1006, '')).toBeNull();
   });
 });
 

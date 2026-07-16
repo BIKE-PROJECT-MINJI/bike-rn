@@ -1,5 +1,10 @@
 import { createRideDraft, finishRideDraft, type RideDraft } from './rideQueueModel';
-import { planRideSyncs, rideSyncDelayMs, shouldSyncOnForeground } from './rideSyncSchedule';
+import {
+  exhaustedAutomaticRideDrafts,
+  planRideSyncs,
+  rideSyncDelayMs,
+  shouldSyncOnForeground,
+} from './rideSyncSchedule';
 
 function finalizingDraft(
   finalizationStartedAtMs: number,
@@ -71,5 +76,24 @@ describe('ride finalization sync schedule', () => {
       { clientRideId: 'ride-pending-1', delayMs: 0 },
       { clientRideId: 'ride-pending-2', delayMs: 0 },
     ]);
+  });
+
+  it('does not schedule a network request at the eight-attempt boundary', () => {
+    const draft: RideDraft = {
+      ...finishRideDraft(createRideDraft('ride-exhausted-attempts', 1_700_000_000_000), 1_700_000_060_000),
+      status: 'RETRY_WAIT',
+      attemptCount: 8,
+    };
+
+    expect(rideSyncDelayMs(draft, 1_700_000_070_000)).toBeNull();
+    expect(exhaustedAutomaticRideDrafts([draft], 1_700_000_070_000)).toEqual([draft]);
+  });
+
+  it('does not schedule a network request at exactly twenty-four hours', () => {
+    const draft = finishRideDraft(createRideDraft('ride-exhausted-age', 1_700_000_000_000), 1_700_000_060_000);
+    const endedAtMs = Date.parse(draft.endedAtIso ?? draft.startedAtIso);
+
+    expect(rideSyncDelayMs(draft, endedAtMs + 24 * 60 * 60 * 1000)).toBeNull();
+    expect(exhaustedAutomaticRideDrafts([draft], endedAtMs + 24 * 60 * 60 * 1000)).toEqual([draft]);
   });
 });

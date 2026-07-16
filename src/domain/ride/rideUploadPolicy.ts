@@ -1,5 +1,7 @@
 import { ApiClientError } from '../../shared/api/apiClient';
 
+export const AUTHENTICATION_REQUIRED_ERROR_CODE = 'AUTHENTICATION_REQUIRED';
+
 export type RideUploadFailure =
   | { readonly kind: 'RETRYABLE'; readonly retryAfterSeconds: number; readonly errorCode: string | null }
   | { readonly kind: 'USER_ACTION'; readonly action: 'LOGIN'; readonly errorCode: string | null }
@@ -13,7 +15,11 @@ export function classifyRideUploadFailure(error: unknown): RideUploadFailure {
     return { kind: 'TERMINAL', errorCode: 'UNEXPECTED_CLIENT_ERROR' };
   }
   if (error.status === 401) {
-    return { kind: 'USER_ACTION', action: 'LOGIN', errorCode: error.errorCode };
+    return {
+      kind: 'USER_ACTION',
+      action: 'LOGIN',
+      errorCode: AUTHENTICATION_REQUIRED_ERROR_CODE,
+    };
   }
   if (error.status === 408 || error.status === 429 || error.status === null || error.status >= 500) {
     return {

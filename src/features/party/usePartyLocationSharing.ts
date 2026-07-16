@@ -6,6 +6,7 @@ import { issueRidePartySocketToken } from '../../domain/party/partyService';
 import { resolveApiBaseUrl, toWebSocketUrl } from '../../shared/config/env';
 import {
   partyReconnectDelayMs,
+  partySocketTerminalMessage,
   shouldReconnectPartySocket,
   shouldRetryPartyLocationError,
   toPartyLocationPayload,
@@ -101,7 +102,12 @@ export function usePartyLocationSharing(
           if (reconnectAllowed && shouldReconnectPartySocket(event.code)) {
             scheduleReconnect(attempt);
           } else if (!disposed) {
+            reconnectAllowed = false;
             setStatus('ERROR');
+            const terminalMessage = partySocketTerminalMessage(event.code, event.reason);
+            if (terminalMessage !== null) {
+              setErrorMessage(terminalMessage);
+            }
           }
         };
       } catch (error) {

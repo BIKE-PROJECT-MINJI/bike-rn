@@ -7,6 +7,8 @@ import { fetchRideRecords } from '../../domain/ride/rideApi';
 import { listPendingRideDrafts } from '../../domain/ride/localRideQueue';
 import type { RideDraft } from '../../domain/ride/rideQueueModel';
 import { canManuallyRetryRide } from '../../domain/ride/rideQueueModel';
+import { RIDE_ROUTE_QUALITY_REJECTED_ERROR_CODE } from '../../domain/ride/rideRouteQuality';
+import { RIDE_RETRY_BUDGET_EXHAUSTED_ERROR_CODE } from '../../domain/ride/rideRetryPolicy';
 import { useRideSyncCoordinator } from '../../domain/ride/RideSyncContext';
 import { formatHudDistance, formatHudDuration } from '../../domain/ride/rideTracking';
 import { GajaColors } from '../../shared/design/tokens';
@@ -14,6 +16,7 @@ import { GajaButton } from '../../shared/ui/GajaButton';
 import { GajaCard, StatusBadge } from '../../shared/ui/GajaCard';
 import { GajaScreen } from '../../shared/ui/GajaScreen';
 import { EmptyStateView, ErrorStateView, LoadingStateView } from '../../shared/ui/StateViews';
+import { buildRideQualityNotice } from './rideQualityNotice';
 
 export function RecordsScreen() {
   const rideSync = useRideSyncCoordinator();
@@ -43,6 +46,7 @@ export function RecordsScreen() {
           draft={draft}
           retrying={rideSync.syncing}
           canRetry={accessToken !== null && canManuallyRetryRide(draft)}
+          retryLabel={draft.lastErrorCode === RIDE_RETRY_BUDGET_EXHAUSTED_ERROR_CODE ? '지금 다시 시도' : '로그인 확인 후 다시 저장'}
           onRetry={() => void rideSync.syncById(draft.clientRideId)}
         />
       ))}
@@ -53,11 +57,16 @@ export function RecordsScreen() {
       ) : null}
       {recordsQuery.isPending && accessToken ? <LoadingStateView message="저장된 기록을 불러오는 중입니다." /> : null}
       {recordsQuery.error ? <ErrorStateView title="기록을 불러오지 못했어요" message={recordsQuery.error.message} onRetry={() => recordsQuery.refetch()} /> : null}
-      {recordsQuery.data?.map((record) => (
-        <GajaCard key={record.rideRecordId} title={`주행 기록 #${record.rideRecordId}`} subtitle={`${formatHudDistance(record.distanceM)} · ${formatHudDuration(record.durationSec * 1000)}`}>
-          <StatusBadge label={record.finalizationStatus} tone={record.finalizationStatus === 'READY' ? 'success' : record.finalizationStatus === 'FAILED' ? 'danger' : 'warning'} />
-        </GajaCard>
-      ))}
+      {recordsQuery.data?.map((record) => {
+        const qualityNotice = buildRideQualityNotice(record.qualityStatus);
+        return (
+          <GajaCard key={record.rideRecordId} title={`주행 기록 #${record.rideRecordId}`} subtitle={`${formatHudDistance(record.distanceM)} · ${formatHudDuration(record.durationSec * 1000)}`}>
+            <StatusBadge label={record.finalizationStatus} tone={record.finalizationStatus === 'READY' ? 'success' : record.finalizationStatus === 'FAILED' ? 'danger' : 'warning'} />
+            {qualityNotice ? <StatusBadge label={qualityNotice.label} tone={qualityNotice.tone} /> : null}
+            {qualityNotice ? <Text style={styles.pendingMeta}>{qualityNotice.message}</Text> : null}
+          </GajaCard>
+        );
+      })}
       {hasNothing && !recordsQuery.isPending ? <EmptyStateView title="아직 기록이 없어요" message="자유주행을 시작하면 기기에 먼저 안전하게 저장됩니다." /> : null}
     </GajaScreen>
   );
@@ -67,11 +76,13 @@ function PendingRideCard({
   draft,
   retrying,
   canRetry,
+  retryLabel,
   onRetry,
 }: {
   readonly draft: RideDraft;
   readonly retrying: boolean;
   readonly canRetry: boolean;
+  readonly retryLabel: string;
   readonly onRetry: () => void;
 }) {
   const tone = draft.status === 'FAILED_TERMINAL' || draft.status === 'FAILED_USER_ACTION' ? 'danger' : 'warning';
@@ -81,10 +92,14 @@ function PendingRideCard({
         <Ionicons name="phone-portrait-outline" size={20} color={GajaColors.primary} />
         <StatusBadge label={draft.status} tone={tone} />
       </View>
-      <Text style={styles.pendingMeta}>서버 처리가 끝날 때까지 원본을 지우지 않습니다.</Text>
+      <Text style={styles.pendingMeta}>
+        {draft.lastErrorCode === RIDE_ROUTE_QUALITY_REJECTED_ERROR_CODE
+          ? 'GPS 품질 기준을 통과하지 못해 코스로 만들 수 없습니다. 원본 주행은 기기에 보관됩니다.'
+          : '서버 처리가 끝날 때까지 원본을 지우지 않습니다.'}
+      </Text>
       {canRetry ? (
         <GajaButton
-          label={retrying ? '다시 저장 중' : '로그인 확인 후 다시 저장'}
+          label={retrying ? '다시 저장 중' : retryLabel}
           variant="secondary"
           disabled={retrying}
           onPress={onRetry}

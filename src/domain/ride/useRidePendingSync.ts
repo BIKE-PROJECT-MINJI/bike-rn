@@ -14,8 +14,13 @@ import { syncRideDraft } from './rideSyncEngine';
 import { createRideSyncGate } from './rideSyncGate';
 import { createRideForegroundSyncTracker } from './rideForegroundSyncTracker';
 import { messageForRideSyncResult } from './rideSyncPresentation';
-import { planRideSyncs } from './rideSyncSchedule';
+import { exhaustedAutomaticRideDrafts, planRideSyncs } from './rideSyncSchedule';
+import {
+  isAutomaticRetryBudgetExhausted,
+  RIDE_RETRY_BUDGET_EXHAUSTED_ERROR_CODE,
+} from './rideRetryPolicy';
 import { createRideUploadGate } from './rideUploadGate';
+import { AUTHENTICATION_REQUIRED_ERROR_CODE } from './rideUploadPolicy';
 
 export type RidePendingSyncState = {
   readonly draft: RideDraft | null;
@@ -40,20 +45,36 @@ export function useRidePendingSync(
   const [uploadGate] = useState(createRideUploadGate);
   const [foregroundSyncTracker] = useState(createRideForegroundSyncTracker);
   const syncCount = useRef(0);
+  const authRecoveryAttempts = useRef(new Set<string>());
+  const authRecoveryToken = useRef<string | null>(null);
 
   const refreshLocal = useCallback(() => {
     setPendingDrafts(listPendingRideDrafts());
     setReceipt(loadLatestRideReceipt());
   }, []);
 
-  const syncById = useCallback(
-    async (clientRideId: string): Promise<void> => syncGate.run(clientRideId, async () => {
+  const runSyncById = useCallback(
+    async (clientRideId: string, trigger: RideSyncTrigger): Promise<void> => syncGate.run(clientRideId, async () => {
       if (accessToken === null) {
         onError('저장 대기 중인 주행을 보내려면 다시 로그인해 주세요.');
         return;
       }
       const current = loadRideDraft(clientRideId);
       if (current === null || current.status === 'RECORDING' || current.status === 'PAUSED') {
+        return;
+      }
+      if (
+        trigger === 'AUTO' &&
+        current.rideRecordId === null &&
+        isAutomaticRetryBudgetExhausted(current, current.attemptCount, Date.now())
+      ) {
+        await saveRideDraft({
+          ...current,
+          status: 'FAILED_USER_ACTION',
+          nextRetryAtMs: null,
+          lastErrorCode: RIDE_RETRY_BUDGET_EXHAUSTED_ERROR_CODE,
+        });
+        refreshLocal();
         return;
       }
       syncCount.current += 1;
@@ -70,6 +91,9 @@ export function useRidePendingSync(
             complete: completeRideDraft,
           });
         const result = current.rideRecordId === null ? await uploadGate.run(runSync) : await runSync();
+        if (result.status === 'FAILED_USER_ACTION' && result.errorCode === AUTHENTICATION_REQUIRED_ERROR_CODE) {
+          authRecoveryAttempts.current.add(current.clientRideId);
+        }
         onMessage(messageForRideSyncResult(result));
       } catch (error) {
         onError(error instanceof Error ? error.message : UNKNOWN_RIDE_ERROR_MESSAGE);
@@ -82,6 +106,11 @@ export function useRidePendingSync(
     [accessToken, onError, onMessage, refreshLocal, syncGate, uploadGate],
   );
 
+  const syncById = useCallback(
+    (clientRideId: string): Promise<void> => runSyncById(clientRideId, 'MANUAL'),
+    [runSyncById],
+  );
+
   useEffect(() => {
     refreshLocal();
     const storageTimer = setInterval(refreshLocal, 5_000);
@@ -89,19 +118,52 @@ export function useRidePendingSync(
   }, [refreshLocal]);
 
   useEffect(() => {
+    if (authRecoveryToken.current !== accessToken) {
+      authRecoveryToken.current = accessToken;
+      authRecoveryAttempts.current.clear();
+    }
+    if (accessToken === null || appState !== 'active') {
+      return;
+    }
+    for (const pending of pendingDrafts) {
+      if (
+        pending.status === 'FAILED_USER_ACTION' &&
+        pending.lastErrorCode === AUTHENTICATION_REQUIRED_ERROR_CODE &&
+        !authRecoveryAttempts.current.has(pending.clientRideId)
+      ) {
+        authRecoveryAttempts.current.add(pending.clientRideId);
+        void runSyncById(pending.clientRideId, 'AUTO');
+      }
+    }
+  }, [accessToken, appState, pendingDrafts, runSyncById]);
+
+  useEffect(() => {
     if (accessToken === null || appState !== 'active') {
       return;
     }
     const timers: ReturnType<typeof setTimeout>[] = [];
-    for (const plan of planRideSyncs(pendingDrafts, Date.now())) {
-      timers.push(setTimeout(() => void syncById(plan.clientRideId), plan.delayMs));
+    const nowMs = Date.now();
+    const exhausted = exhaustedAutomaticRideDrafts(pendingDrafts, nowMs);
+    for (const draft of exhausted) {
+      saveRideDraft({
+        ...draft,
+        status: 'FAILED_USER_ACTION',
+        nextRetryAtMs: null,
+        lastErrorCode: RIDE_RETRY_BUDGET_EXHAUSTED_ERROR_CODE,
+      });
+    }
+    if (exhausted.length > 0) {
+      refreshLocal();
+    }
+    for (const plan of planRideSyncs(pendingDrafts, nowMs)) {
+      timers.push(setTimeout(() => void runSyncById(plan.clientRideId, 'AUTO'), plan.delayMs));
     }
     return () => {
       for (const timer of timers) {
         clearTimeout(timer);
       }
     };
-  }, [accessToken, appState, pendingDrafts, syncById]);
+  }, [accessToken, appState, pendingDrafts, refreshLocal, runSyncById]);
 
   useEffect(() => {
     let previousState = AppState.currentState;
@@ -120,12 +182,13 @@ export function useRidePendingSync(
       return;
     }
     for (const clientRideId of foregroundSyncTracker.selectOnce(activationId, pendingDrafts)) {
-      void syncById(clientRideId);
+      void runSyncById(clientRideId, 'AUTO');
     }
-  }, [activationId, appState, foregroundSyncTracker, pendingDrafts, syncById]);
+  }, [activationId, appState, foregroundSyncTracker, pendingDrafts, runSyncById]);
 
   const draft = useMemo(() => selectRideSessionDraft(pendingDrafts), [pendingDrafts]);
   return { draft, pendingDrafts, receipt, syncing, refreshLocal, syncById };
 }
 
 const UNKNOWN_RIDE_ERROR_MESSAGE = '주행 처리 중 알 수 없는 오류가 발생했습니다.';
+type RideSyncTrigger = 'AUTO' | 'MANUAL';

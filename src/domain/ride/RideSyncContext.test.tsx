@@ -40,6 +40,7 @@ jest.mock('../auth/authSessionStore', () => ({
     accessTokenExpiresAtEpochMillis: 1_700_003_600_000,
     refreshTokenExpiresAtEpochMillis: 1_700_604_800_000,
   })),
+  subscribeAuthSessionChanges: jest.fn(() => jest.fn()),
 }));
 jest.mock('./useRidePendingSync', () => ({ useRidePendingSync: mockUseRidePendingSync }));
 

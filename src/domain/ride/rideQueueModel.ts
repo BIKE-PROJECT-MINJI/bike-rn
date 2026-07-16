@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { classifyRidePointLink } from './rideDistanceQuality';
 
 const ridePointSchema = z.object({
   pointOrder: z.number().int().positive(),
@@ -134,12 +135,14 @@ export function appendRidePointsFromOrder(
   let distanceDelta = 0;
   const orderedPoints = points.map((point, index) => {
     if (previous) {
-      distanceDelta += distanceBetweenMeters(
-        previous.latitude,
-        previous.longitude,
-        point.latitude,
-        point.longitude,
+      const decision = classifyRidePointLink(
+        previous,
+        point,
+        draft.activeSegmentStartedAtMs ?? Number.POSITIVE_INFINITY,
       );
+      if (decision.kind === 'ACCEPTED') {
+        distanceDelta += decision.distanceMeters;
+      }
     }
     const orderedPoint: RidePoint = { ...point, pointOrder: firstPointOrder + index };
     previous = orderedPoint;
@@ -218,24 +221,4 @@ class CorruptedRideDraftError extends Error {
     super('저장된 주행 데이터가 손상되었습니다.');
     this.name = 'CorruptedRideDraftError';
   }
-}
-
-function distanceBetweenMeters(
-  startLatitude: number,
-  startLongitude: number,
-  endLatitude: number,
-  endLongitude: number,
-): number {
-  const latitudeDelta = degreesToRadians(endLatitude - startLatitude);
-  const longitudeDelta = degreesToRadians(endLongitude - startLongitude);
-  const startLatitudeRadians = degreesToRadians(startLatitude);
-  const endLatitudeRadians = degreesToRadians(endLatitude);
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(startLatitudeRadians) * Math.cos(endLatitudeRadians) * Math.sin(longitudeDelta / 2) ** 2;
-  return 6_371_000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
-}
-
-function degreesToRadians(value: number): number {
-  return (value * Math.PI) / 180;
 }

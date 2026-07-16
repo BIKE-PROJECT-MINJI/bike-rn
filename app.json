@@ -43,6 +43,7 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
+      "./plugins/with-google-maps-key-guard",
       "expo-font"
     ],
     "web": {

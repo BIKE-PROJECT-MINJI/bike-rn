@@ -49,7 +49,20 @@ export function shouldRetryPartyLocationError(error: unknown): boolean {
 }
 
 export function shouldReconnectPartySocket(closeCode: number): boolean {
-  return closeCode !== 1000 && closeCode !== 1008;
+  return closeCode === 1006;
+}
+
+export function partySocketTerminalMessage(closeCode: number, reason: string): string | null {
+  if (closeCode !== 1008) {
+    return null;
+  }
+  if (reason === 'member-left') {
+    return '파티 참여가 종료되어 위치 공유를 멈췄습니다.';
+  }
+  if (reason === 'party-canceled') {
+    return '파티가 종료되어 위치 공유를 멈췄습니다.';
+  }
+  return '파티 위치 공유 권한이 종료되었습니다.';
 }
 
 const PARTY_LOCATION_TTL_MS = 20_000;

@@ -1,4 +1,5 @@
 import { apiRequest } from '../../shared/api/apiClient';
+import { clearAuthSession } from './authSessionStore';
 import type { AuthSession, AuthTokenResponse } from './authModels';
 
 type AuthApiResponse = {
@@ -21,6 +22,11 @@ export async function registerWithEmail(email: string, password: string, display
     body: { email: normalizedEmail, password, displayName: displayName.trim() },
   });
   return toAuthSession(normalizedEmail, payload.data);
+}
+
+export async function logoutCurrentSession(accessToken: string): Promise<void> {
+  await apiRequest('/api/v1/auth/logout', { method: 'POST', accessToken });
+  await clearAuthSession();
 }
 
 function toAuthSession(email: string, token: AuthTokenResponse): AuthSession {

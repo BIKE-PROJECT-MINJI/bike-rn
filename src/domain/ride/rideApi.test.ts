@@ -1,5 +1,5 @@
 import { appendRidePoint, createRideDraft, finishRideDraft } from './rideQueueModel';
-import { buildRideSaveRequest, recoverRideStatus } from './rideApi';
+import { buildRideSaveRequest, fetchRideRecords, recoverRideStatus } from './rideApi';
 
 describe('buildRideSaveRequest', () => {
   it('maps a finished local ride to the backend save contract', () => {
@@ -65,6 +65,8 @@ describe('recoverRideStatus', () => {
       rideRecordId: 41,
       status: 'FINALIZING',
       linkedCourseId: null,
+      qualityStatus: null,
+      qualityReasons: [],
     });
     expect(fetchSpy).toHaveBeenCalledWith(
       'https://api.gajabike.shop/api/v1/ride-records/receipt',
@@ -91,6 +93,65 @@ describe('recoverRideStatus', () => {
     await expect(recoverRideStatus('ride-unknown', 'token')).rejects.toEqual(
       expect.objectContaining({ status: 503 }),
     );
+  });
+
+  it('maps REJECTED quality from a finalization receipt', async () => {
+    // Given
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      responseOf(200, {
+        code: 200,
+        message: 'OK',
+        data: {
+          rideRecordId: 41,
+          status: 'READY',
+          linkedCourseId: null,
+          qualityStatus: 'REJECTED',
+          qualityReasons: ['IMPLAUSIBLE_JUMP'],
+        },
+      }),
+    );
+
+    // When / Then
+    await expect(recoverRideStatus('ride-rejected', 'token')).resolves.toEqual({
+      rideRecordId: 41,
+      status: 'READY',
+      linkedCourseId: null,
+      qualityStatus: 'REJECTED',
+      qualityReasons: ['IMPLAUSIBLE_JUMP'],
+    });
+  });
+});
+
+describe('fetchRideRecords quality compatibility', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('defaults missing quality fields and preserves fields when the list API supplies them', async () => {
+    // Given
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      responseOf(200, {
+        code: 200,
+        message: 'OK',
+        data: {
+          items: [
+            { rideRecordId: 1, distanceM: 1000, durationSec: 300, finalizationStatus: 'READY' },
+            {
+              rideRecordId: 2,
+              distanceM: 900,
+              durationSec: 280,
+              finalizationStatus: 'READY',
+              qualityStatus: 'PARTIAL',
+              qualityReasons: ['LOW_ACCURACY'],
+            },
+          ],
+        },
+      }),
+    );
+
+    // When / Then
+    await expect(fetchRideRecords('token')).resolves.toEqual([
+      expect.objectContaining({ rideRecordId: 1, qualityStatus: null, qualityReasons: [] }),
+      expect.objectContaining({ rideRecordId: 2, qualityStatus: 'PARTIAL', qualityReasons: ['LOW_ACCURACY'] }),
+    ]);
   });
 });
 

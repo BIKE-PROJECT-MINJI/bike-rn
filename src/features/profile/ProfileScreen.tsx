@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
-import { clearAuthSession, loadAuthSession, saveAuthSession } from '../../domain/auth/authSessionStore';
-import { loginWithEmail, registerWithEmail } from '../../domain/auth/authService';
+import { loadAuthSession, saveAuthSession } from '../../domain/auth/authSessionStore';
+import { loginWithEmail, logoutCurrentSession, registerWithEmail } from '../../domain/auth/authService';
 import { GajaColors } from '../../shared/design/tokens';
 import { GajaButton } from '../../shared/ui/GajaButton';
 import { GajaCard, StatusBadge } from '../../shared/ui/GajaCard';
@@ -26,6 +26,13 @@ export function ProfileScreen() {
       await queryClient.invalidateQueries({ queryKey: ['auth-session'] });
     },
   });
+  const logoutMutation = useMutation({
+    mutationFn: logoutCurrentSession,
+    onSuccess: async () => {
+      resetForm();
+      await queryClient.invalidateQueries({ queryKey: ['auth-session'] });
+    },
+  });
   const canSubmit = email.trim().length > 0 && password.length > 0 && (authMode === 'login' || displayName.trim().length > 0);
   const title = authMode === 'register' ? '계정 만들기' : '로그인';
   const resetForm = () => {
@@ -36,7 +43,8 @@ export function ProfileScreen() {
   };
 
   if (sessionQuery.data) {
-    const sessionSummary = buildProfileSessionSummary(sessionQuery.data, Date.now());
+    const session = sessionQuery.data;
+    const sessionSummary = buildProfileSessionSummary(session, Date.now());
     return (
       <GajaScreen>
         <GajaCard title="테스트 계정 상태" subtitle={sessionSummary.title}>
@@ -49,12 +57,10 @@ export function ProfileScreen() {
           <GajaButton
             label="로그아웃하고 새 계정 테스트"
             variant="secondary"
-            onPress={async () => {
-              await clearAuthSession();
-              resetForm();
-              await queryClient.invalidateQueries({ queryKey: ['auth-session'] });
-            }}
+            disabled={logoutMutation.isPending}
+            onPress={() => logoutMutation.mutate(session.accessToken)}
           />
+          {logoutMutation.error ? <Text style={styles.error}>{logoutMutation.error.message}</Text> : null}
         </GajaCard>
       </GajaScreen>
     );

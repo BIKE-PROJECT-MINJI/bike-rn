@@ -27,13 +27,19 @@ import {
   RIDE_RECOVERY_DEPENDENCIES,
 } from '../../domain/ride/rideSessionDependencies';
 import { useRideSyncCoordinator } from '../../domain/ride/RideSyncContext';
-import { createActiveReconcileScheduler } from './activeReconcileScheduler';
+import {
+  createActiveReconcileScheduler,
+  createActiveRideRecoveryMessageGate,
+} from './activeReconcileScheduler';
 import type { RideSessionActions, RideSessionState } from './rideSessionTypes';
 
 export function useRideSession(_legacyAccessToken?: string | null): RideSessionState & RideSessionActions {
   const [nowMs, setNowMs] = useState(Date.now());
   const [actionBusy, setActionBusy] = useState(false);
   const [lifecycleGate] = useState(createRideLifecycleGate);
+  const [recoveryMessageGate] = useState(() =>
+    createActiveRideRecoveryMessageGate(loadActiveRideDraft()?.clientRideId ?? null),
+  );
   const startInFlight = useRef(false);
   const reconcileInFlight = useRef<Promise<void> | null>(null);
 
@@ -75,10 +81,11 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
           setErrorMessage(null);
         }
         await reconcileRideLocationCollection(active, RIDE_RECOVERY_DEPENDENCIES);
-        if (active?.status === 'RECORDING') {
-          setMessage('중단됐던 주행을 복구했습니다. 위치 수집 재연결을 요청했고 새 위치를 확인 중입니다.');
-        } else if (active?.status === 'PAUSED') {
-          setMessage('일시정지된 주행을 복구했습니다.');
+        const recoveryMessage = active?.status === 'RECORDING' || active?.status === 'PAUSED'
+          ? recoveryMessageGate.messageFor({ clientRideId: active.clientRideId, status: active.status })
+          : null;
+        if (recoveryMessage !== null) {
+          setMessage(recoveryMessage);
         }
       } catch (error) {
         setErrorMessage(
@@ -96,7 +103,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
         reconcileInFlight.current = null;
       }
     }
-  }, [lifecycleGate, refreshLocal]);
+  }, [lifecycleGate, recoveryMessageGate, refreshLocal]);
 
   useEffect(() => {
     const scheduler = createActiveReconcileScheduler(reconcileLocalRide, () => AppState.currentState);

@@ -20,13 +20,21 @@ describe('ride upload failure policy', () => {
 
   it('requires login instead of retrying an expired session forever', () => {
     // Given
-    const error = new ApiClientError({ message: '인증이 필요합니다.', status: 401 });
+    const error = new ApiClientError({
+      message: '인증이 필요합니다.',
+      status: 401,
+      errorCode: 'TOKEN_EXPIRED',
+    });
 
     // When
     const result = classifyRideUploadFailure(error);
 
     // Then
-    expect(result).toEqual({ kind: 'USER_ACTION', action: 'LOGIN', errorCode: null });
+    expect(result).toEqual({
+      kind: 'USER_ACTION',
+      action: 'LOGIN',
+      errorCode: 'AUTHENTICATION_REQUIRED',
+    });
   });
 
   it('marks an invalid ride payload as terminal', () => {

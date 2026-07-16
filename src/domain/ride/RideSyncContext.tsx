@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { loadAuthSession } from '../auth/authSessionStore';
+import { loadAuthSession, subscribeAuthSessionChanges } from '../auth/authSessionStore';
 import { useRidePendingSync, type RidePendingSyncState } from './useRidePendingSync';
 
 export type RideSyncCoordinatorState = RidePendingSyncState & {
@@ -20,6 +20,10 @@ export function RideSyncProvider({ children }: { readonly children: ReactNode })
   const [message, setMessage] = useState('주행을 시작할 준비가 됐습니다.');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pendingSync = useRidePendingSync(accessToken, setMessage, setErrorMessage);
+
+  useEffect(() => subscribeAuthSessionChanges(() => {
+    void queryClient.invalidateQueries({ queryKey: ['auth-session'] });
+  }), [queryClient]);
 
   useEffect(() => {
     queryClient.setQueryData(['pending-rides-home'], pendingSync.pendingDrafts);

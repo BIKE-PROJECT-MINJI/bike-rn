@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { ApiClientError, apiRequest } from '../../shared/api/apiClient';
 import type { RideDraft } from './rideQueueModel';
+import type { RideRouteQualityStatus } from './rideRouteQuality';
 import type { RemoteRideSaveResult, RemoteRideStatusResult } from './rideSyncEngine';
+
+const rideRouteQualitySchema: z.ZodType<RideRouteQualityStatus> = z.enum(['FULL', 'PARTIAL', 'REJECTED']);
 
 const rideSaveResponseSchema = z.object({
   data: z.object({
@@ -15,6 +18,8 @@ const rideStatusResponseSchema = z.object({
     rideRecordId: z.number().int().positive(),
     status: z.enum(['FINALIZING', 'READY', 'FAILED']),
     linkedCourseId: z.number().int().positive().nullable(),
+    qualityStatus: rideRouteQualitySchema.nullable().optional().default(null),
+    qualityReasons: z.array(z.string()).optional().default([]),
   }),
 });
 
@@ -26,6 +31,8 @@ const rideListResponseSchema = z.object({
         distanceM: z.number().int().nonnegative(),
         durationSec: z.number().int().nonnegative(),
         finalizationStatus: z.enum(['FINALIZING', 'READY', 'FAILED']),
+        qualityStatus: rideRouteQualitySchema.nullable().optional().default(null),
+        qualityReasons: z.array(z.string()).optional().default([]),
       }),
     ),
   }),

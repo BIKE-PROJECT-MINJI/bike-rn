@@ -80,9 +80,10 @@ describe('ride queue model', () => {
     expect(canManuallyRetryRide(queued)).toBe(false);
   });
 
-  it('persists accepted samples incrementally and ignores samples while paused', () => {
+  it('persists raw samples but does not connect distance across a pause boundary', () => {
     // Given
-    const first = appendRidePoint(createRideDraft('ride-incremental', 1_700_000_000_000), {
+    const startedAtMs = Date.parse('2026-07-14T00:00:00.000Z');
+    const first = appendRidePoint(createRideDraft('ride-incremental', startedAtMs), {
       latitude: 37.5665,
       longitude: 126.978,
       capturedAtIso: '2026-07-14T00:00:01.000Z',
@@ -91,7 +92,7 @@ describe('ride queue model', () => {
       bearingDeg: 90,
       altitudeM: 12,
     });
-    const paused = pauseRideDraft(first, 1_700_000_005_000);
+    const paused = pauseRideDraft(first, startedAtMs + 5_000);
 
     // When
     const ignored = appendRidePoint(paused, {
@@ -103,7 +104,7 @@ describe('ride queue model', () => {
       bearingDeg: 90,
       altitudeM: 12,
     });
-    const resumed = resumeRideDraft(ignored, 1_700_000_010_000);
+    const resumed = resumeRideDraft(ignored, startedAtMs + 10_000);
     const second = appendRidePoint(resumed, {
       latitude: 37.567,
       longitude: 126.979,
@@ -117,7 +118,29 @@ describe('ride queue model', () => {
     // Then
     expect(second.routePoints).toHaveLength(2);
     expect(second.routePoints[1]?.pointOrder).toBe(2);
-    expect(second.distanceMeters).toBeGreaterThan(0);
+    expect(second.distanceMeters).toBe(0);
+  });
+
+  it('preserves a GPS spike as raw evidence without adding the impossible distance', () => {
+    const draft = createRideDraft('ride-spike', Date.parse('2026-07-16T00:00:00.000Z'));
+
+    const updated = appendRidePoints(draft, [
+      {
+        latitude: 37.5665, longitude: 126.978, capturedAtIso: '2026-07-16T00:00:01.000Z',
+        accuracyM: 5, speedMps: 3, bearingDeg: 30, altitudeM: null,
+      },
+      {
+        latitude: 37.95, longitude: 127.4, capturedAtIso: '2026-07-16T00:00:02.000Z',
+        accuracyM: 5, speedMps: 3, bearingDeg: 30, altitudeM: null,
+      },
+      {
+        latitude: 37.5666, longitude: 126.9781, capturedAtIso: '2026-07-16T00:00:03.000Z',
+        accuracyM: 5, speedMps: 3, bearingDeg: 30, altitudeM: null,
+      },
+    ]);
+
+    expect(updated.routePoints).toHaveLength(3);
+    expect(updated.distanceMeters).toBe(0);
   });
 
   it('appends a background batch with contiguous point order in one transition', () => {
@@ -134,8 +157,8 @@ describe('ride queue model', () => {
         altitudeM: null,
       },
       {
-        latitude: 37.567,
-        longitude: 126.979,
+        latitude: 37.56655,
+        longitude: 126.97805,
         capturedAtIso: '2026-07-14T00:00:03.000Z',
         accuracyM: 5,
         speedMps: 3,

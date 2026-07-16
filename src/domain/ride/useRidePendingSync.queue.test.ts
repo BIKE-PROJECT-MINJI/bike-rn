@@ -27,9 +27,15 @@ const mockUploadRideDraft = jest.fn(async (draft: RideDraft) => {
   }
   return { rideRecordId: 52, finalizationStatus: 'READY' as const };
 });
+const mockFetchRideStatus = jest.fn().mockResolvedValue({
+  rideRecordId: 52,
+  status: 'READY' as const,
+  linkedCourseId: null,
+  qualityStatus: 'FULL' as const,
+});
 
 jest.mock('./rideApi', () => ({
-  fetchRideStatus: jest.fn(),
+  fetchRideStatus: mockFetchRideStatus,
   recoverRideStatus: jest.fn().mockResolvedValue(null),
   uploadRideDraft: mockUploadRideDraft,
 }));
@@ -50,6 +56,7 @@ const { useRidePendingSync } = require('./useRidePendingSync') as typeof import(
 
 describe('useRidePendingSync queued drain', () => {
   beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_700_000_070_000);
     mockDrafts.clear();
     mockReceipts.length = 0;
     mockUploadOrder.length = 0;
@@ -60,6 +67,7 @@ describe('useRidePendingSync queued drain', () => {
       mockReleaseOldestUpload = resolve;
     });
     mockUploadRideDraft.mockClear();
+    mockFetchRideStatus.mockClear();
     Object.defineProperty(AppState, 'currentState', {
       configurable: true,
       get: () => mockCurrentAppState,
@@ -70,6 +78,7 @@ describe('useRidePendingSync queued drain', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
@@ -94,6 +103,35 @@ describe('useRidePendingSync queued drain', () => {
     expect(mockDrafts.has('ride-newer')).toBe(false);
     expect(mockReceipts[0]).toEqual(expect.objectContaining({ clientRideId: 'ride-newer', rideRecordId: 52 }));
     await waitFor(() => expect(result.current.syncing).toBe(false));
+    act(unmount);
+  });
+
+  it('rechecks the retry budget when a scheduled timer crosses the twenty-four-hour boundary', async () => {
+    jest.useFakeTimers();
+    const endedAtMs = 1_700_000_060_000;
+    const budgetBoundaryMs = endedAtMs + 24 * 60 * 60 * 1000;
+    jest.setSystemTime(budgetBoundaryMs - 2_000);
+    mockDrafts.clear();
+    mockDrafts.set('ride-boundary', {
+      ...queuedDraft('ride-boundary', endedAtMs - 60_000),
+      status: 'RETRY_WAIT',
+      attemptCount: 1,
+      nextRetryAtMs: budgetBoundaryMs + 1_000,
+    });
+
+    const { unmount } = renderHook(() => useRidePendingSync('token', jest.fn(), jest.fn()));
+    await act(async () => Promise.resolve());
+    await act(async () => {
+      jest.setSystemTime(budgetBoundaryMs + 1_000);
+      jest.advanceTimersByTime(3_000);
+      await Promise.resolve();
+    });
+
+    expect(mockUploadRideDraft).not.toHaveBeenCalled();
+    expect(mockDrafts.get('ride-boundary')).toEqual(expect.objectContaining({
+      status: 'FAILED_USER_ACTION',
+      lastErrorCode: 'RIDE_RETRY_BUDGET_EXHAUSTED',
+    }));
     act(unmount);
   });
 });

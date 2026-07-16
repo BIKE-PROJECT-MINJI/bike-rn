@@ -1,4 +1,5 @@
 import type { RideDraft } from './rideQueueModel';
+import { isAutomaticRetryBudgetExhausted } from './rideRetryPolicy';
 
 export type RideSyncPlan = {
   readonly clientRideId: string;
@@ -29,6 +30,12 @@ export function rideSyncDelayMs(draft: RideDraft, nowMs: number): number | null 
     const intervalMs = elapsedMs < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS;
     return Math.max(0, draft.lastFinalizationPollAtMs + intervalMs - nowMs);
   }
+  if (
+    draft.rideRecordId === null &&
+    isAutomaticRetryBudgetExhausted(draft, draft.attemptCount, nowMs)
+  ) {
+    return null;
+  }
   if (draft.status === 'QUEUED' || draft.status === 'UPLOADING') {
     return 0;
   }
@@ -36,6 +43,17 @@ export function rideSyncDelayMs(draft: RideDraft, nowMs: number): number | null 
     return Math.max(0, (draft.nextRetryAtMs ?? nowMs) - nowMs);
   }
   return null;
+}
+
+export function exhaustedAutomaticRideDrafts(
+  drafts: readonly RideDraft[],
+  nowMs: number,
+): readonly RideDraft[] {
+  return drafts.filter((draft) =>
+    draft.rideRecordId === null &&
+    (draft.status === 'QUEUED' || draft.status === 'UPLOADING' || draft.status === 'RETRY_WAIT') &&
+    isAutomaticRetryBudgetExhausted(draft, draft.attemptCount, nowMs),
+  );
 }
 
 export function shouldSyncOnForeground(draft: RideDraft): boolean {
