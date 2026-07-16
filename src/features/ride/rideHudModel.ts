@@ -9,6 +9,9 @@ export function latestRidePoint(draft: RideDraft | null): RidePoint | null {
 }
 
 export function rideSpeedKmh(draft: RideDraft | null): number {
+  if (draft?.status === 'PAUSED') {
+    return 0;
+  }
   const speedMps = latestRidePoint(draft)?.speedMps;
   return speedMps === null || speedMps === undefined ? 0 : speedMps * 3.6;
 }

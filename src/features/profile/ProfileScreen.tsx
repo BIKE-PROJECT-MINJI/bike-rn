@@ -44,18 +44,16 @@ export function ProfileScreen() {
 
   if (sessionQuery.data) {
     const session = sessionQuery.data;
-    const sessionSummary = buildProfileSessionSummary(session, Date.now());
+    const sessionSummary = buildProfileSessionSummary(session);
     return (
       <GajaScreen>
-        <GajaCard title="테스트 계정 상태" subtitle={sessionSummary.title}>
-          <StatusBadge label="세션 저장됨" tone="success" />
+        <GajaCard title="내 계정" subtitle={sessionSummary.title}>
+          <StatusBadge label="로그인됨" tone="success" />
           <View style={styles.stack}>
             <Text style={styles.meta}>{sessionSummary.emailLabel}</Text>
-            <Text style={styles.meta}>{sessionSummary.userIdLabel}</Text>
-            <Text style={styles.meta}>{sessionSummary.accessTokenLabel}</Text>
           </View>
           <GajaButton
-            label="로그아웃하고 새 계정 테스트"
+            label="로그아웃"
             variant="secondary"
             disabled={logoutMutation.isPending}
             onPress={() => logoutMutation.mutate(session.accessToken)}
@@ -68,11 +66,11 @@ export function ProfileScreen() {
 
   return (
     <GajaScreen>
-      <GajaCard title={title} subtitle="Expo Go에서는 이메일 계정으로 바로 앱 기능을 테스트할 수 있습니다.">
+      <GajaCard title={title} subtitle="이메일로 로그인하거나 새 계정을 만들 수 있습니다.">
         <View style={styles.modeRow}>
           <GajaButton label="로그인" variant={authMode === 'login' ? 'primary' : 'secondary'} onPress={() => setAuthMode('login')} />
           <GajaButton
-            label="새 테스트 계정"
+            label="회원가입"
             variant={authMode === 'register' ? 'primary' : 'secondary'}
             onPress={() => setAuthMode('register')}
           />

@@ -11,6 +11,7 @@ import { ErrorStateView, LoadingStateView } from '../../shared/ui/StateViews';
 import { GajaColors } from '../../shared/design/tokens';
 import { CoursePartySection } from './CoursePartySection';
 import { evaluatePreStart } from './preRidePolicyGate';
+import { buildPreRideRouteSummary } from './preRideRouteSummary';
 
 export function PreRideScreen({ courseId }: { courseId: number }) {
   const courseQuery = useQuery({
@@ -27,14 +28,13 @@ export function PreRideScreen({ courseId }: { courseId: number }) {
   const accessToken = authSessionQuery.data?.accessToken ?? null;
   const startGateMutation = useMutation({ mutationFn: () => evaluatePreStart(courseId) });
   const routePoints = routePointsQuery.data ?? [];
-  const firstPoint = routePoints[0];
-  const lastPoint = routePoints.at(-1);
-  const hasRoute = routePoints.length >= 2;
+  const routeSummary = buildPreRideRouteSummary(routePoints.length);
+  const hasRoute = routeSummary.hasRoute;
   const startEligible = startGateMutation.data?.startGateStatus === 'ELIGIBLE';
 
   return (
     <GajaScreen>
-      <GajaCard title="출발 전 확인" subtitle="코스 상세 로드가 실패하면 시작을 차단합니다.">
+      <GajaCard title="출발 전 확인" subtitle="코스와 현재 위치를 확인한 뒤 안전하게 출발하세요.">
         {courseQuery.isPending ? <LoadingStateView message="코스 정보를 확인하는 중입니다." /> : null}
         {courseQuery.error ? (
           <ErrorStateView title="코스 로드 실패" message={courseQuery.error.message} onRetry={() => courseQuery.refetch()} />
@@ -59,24 +59,21 @@ export function PreRideScreen({ courseId }: { courseId: number }) {
         {routePointsQuery.data ? (
           <>
             <View style={styles.routeSummary}>
-              <Text style={styles.routeSummaryTitle}>실제 GPX 경로점 {routePoints.length}개 로드됨</Text>
-              {firstPoint && lastPoint ? (
-                <Text style={styles.routeSummaryBody}>
-                  출발 {formatCoordinate(firstPoint.latitude)}, {formatCoordinate(firstPoint.longitude)} · 도착 {formatCoordinate(lastPoint.latitude)},{' '}
-                  {formatCoordinate(lastPoint.longitude)}
-                </Text>
-              ) : null}
+              <Text style={styles.routeSummaryTitle}>{routeSummary.title}</Text>
+              <Text style={styles.routeSummaryBody}>{routeSummary.body}</Text>
             </View>
-            <RoutePreviewMap
-              series={[
-                {
-                  id: `course-${courseId}`,
-                  label: '코스 경로',
-                  tone: 'course',
-                  points: routePoints.map((point) => ({ latitude: point.latitude, longitude: point.longitude })),
-                },
-              ]}
-            />
+            {hasRoute ? (
+              <RoutePreviewMap
+                series={[
+                  {
+                    id: `course-${courseId}`,
+                    label: '코스 경로',
+                    tone: 'course',
+                    points: routePoints.map((point) => ({ latitude: point.latitude, longitude: point.longitude })),
+                  },
+                ]}
+              />
+            ) : null}
           </>
         ) : null}
         <CoursePartySection
@@ -150,10 +147,6 @@ function startGateLabel(status: string): string {
     default:
       return 'GPS 확인 필요';
   }
-}
-
-function formatCoordinate(value: number): string {
-  return value.toFixed(5);
 }
 
 const styles = StyleSheet.create({
