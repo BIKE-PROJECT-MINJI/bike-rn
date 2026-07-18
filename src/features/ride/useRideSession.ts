@@ -80,7 +80,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
       try {
         const deviceActive = loadAnyActiveRideDraftForBackgroundTask();
         const ownedActive = deviceActive?.ownerUserId === userId ? deviceActive : null;
-        if (deviceActive?.status === 'RECORDING' && ownedActive === null) {
+        if (userId !== null && deviceActive?.status === 'RECORDING' && ownedActive === null) {
           await pauseOrResumeRide(deviceActive, RIDE_LIFECYCLE_DEPENDENCIES);
           setErrorMessage('계정이 변경되어 이전 계정의 주행 기록을 일시정지했습니다. 해당 계정으로 로그인해 이어가 주세요.');
           return;

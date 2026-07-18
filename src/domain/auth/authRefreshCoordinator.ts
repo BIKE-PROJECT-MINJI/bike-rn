@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ApiClientError, executeApiRequest } from '../../shared/api/apiTransport';
 import type { AuthSession, AuthTokenResponse } from './authModels';
+import { pauseRideForAuthTransition } from './authRideBoundary';
 import {
   clearAuthSession,
   clearAuthSessionIfAccessToken,
@@ -67,6 +68,13 @@ export async function refreshAccessToken(failedAccessToken: string): Promise<str
 }
 
 export async function expireAuthSession(expectedAccessToken?: string): Promise<ApiClientError> {
+  if (expectedAccessToken !== undefined) {
+    const current = await loadAuthSession();
+    if (current !== null && current.accessToken !== expectedAccessToken) {
+      return authSessionChangedError();
+    }
+  }
+  await pauseRideForAuthTransition(null);
   if (expectedAccessToken === undefined) {
     await clearAuthSession();
   } else {

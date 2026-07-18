@@ -1,5 +1,9 @@
 import { Platform } from 'react-native';
 import { loadAuthSession, saveAuthSession } from '../../domain/auth/authSessionStore';
+
+jest.mock('../../domain/auth/authRideBoundary', () => ({
+  pauseRideForAuthTransition: jest.fn(async () => undefined),
+}));
 import { ApiClientError, apiRequest } from './apiClient';
 
 const originalPlatform = Platform.OS;

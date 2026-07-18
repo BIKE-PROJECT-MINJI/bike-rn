@@ -1,4 +1,7 @@
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
+import { appendRidePointsToQueue, loadAnyActiveRideDraftForBackgroundTask } from './localRideQueue';
+import { createRideDraft, pauseRideDraft } from './rideQueueModel';
 import {
   restartBackgroundRideLocation,
   startBackgroundRideLocation,
@@ -26,6 +29,8 @@ jest.mock('./localRideQueue', () => ({
   loadAnyActiveRideDraftForBackgroundTask: jest.fn(() => null),
   updateRideDraft: jest.fn(),
 }));
+
+const registeredBackgroundTask = jest.mocked(TaskManager.defineTask).mock.calls[0]?.[1];
 
 describe('background ride location', () => {
   beforeEach(async () => {
@@ -108,5 +113,26 @@ describe('background ride location', () => {
       '주행 기록을 계속하려면 정확한 위치 권한이 필요합니다.',
     );
     expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it('ignores an in-flight location callback after the ride was paused', async () => {
+    // Given
+    const recording = createRideDraft('ride-paused-before-callback', 1_700_000_000_000, undefined, 11);
+    jest.mocked(loadAnyActiveRideDraftForBackgroundTask).mockReturnValue(
+      pauseRideDraft(recording, 1_700_000_001_000),
+    );
+    if (registeredBackgroundTask === undefined) {
+      throw new Error('백그라운드 위치 task가 등록되지 않았습니다.');
+    }
+
+    // When
+    await registeredBackgroundTask({
+      data: { locations: [] },
+      error: null,
+      executionInfo: { eventId: 'event-after-pause', taskName: 'gaja-background-ride-location-v1' },
+    });
+
+    // Then
+    expect(appendRidePointsToQueue).not.toHaveBeenCalled();
   });
 });

@@ -24,7 +24,7 @@ if (!TaskManager.isTaskDefined(RIDE_LOCATION_TASK_NAME)) {
       return;
     }
     const draft = loadAnyActiveRideDraftForBackgroundTask();
-    if (draft === null) {
+    if (draft?.status !== 'RECORDING') {
       return;
     }
     const points: RidePointInput[] = data.locations.map(toRidePointInput);

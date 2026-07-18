@@ -11,6 +11,7 @@ const mockAccountARide: RideDraft = createRideDraft(
 const mockReconcileRideLocationCollection = jest.fn(async () => undefined);
 const mockPauseOrResumeRide = jest.fn(async () => ({ ...mockAccountARide, status: 'PAUSED' as const }));
 const mockRefreshLocal = jest.fn();
+let mockUserId: number | null = 22;
 
 jest.mock('../../domain/ride/localRideQueue', () => ({
   createRideDraftIfQueueEmpty: jest.fn(),
@@ -27,7 +28,7 @@ jest.mock('../../domain/ride/rideLifecycle', () => ({
 jest.mock('../../domain/ride/RideSyncContext', () => ({
   useRideSyncCoordinator: () => ({
     accessToken: 'account-b-token',
-    userId: 22,
+    userId: mockUserId,
     draft: null,
     pendingDrafts: [],
     receipt: null,
@@ -55,6 +56,7 @@ const { useRideSession } = require('./useRideSession') as typeof import('./useRi
 describe('useRideSession account isolation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserId = 22;
     Object.defineProperty(AppState, 'currentState', { configurable: true, value: 'active' });
     jest.spyOn(AppState, 'addEventListener').mockImplementation(() => ({ remove: jest.fn() }));
   });
@@ -72,6 +74,19 @@ describe('useRideSession account isolation', () => {
     expect(result.current.draft).toBeNull();
     expect(result.current.pendingDrafts).toEqual([]);
 
+    unmount();
+  });
+
+  it('does not pause a ride while the authentication query is still loading', async () => {
+    // Given
+    mockUserId = null;
+
+    // When
+    const { unmount } = renderHook(() => useRideSession());
+
+    // Then
+    await waitFor(() => expect(mockRefreshLocal).toHaveBeenCalled());
+    expect(mockPauseOrResumeRide).not.toHaveBeenCalled();
     unmount();
   });
 });

@@ -2,9 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { useMemo } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { registerAuthRideTransitionHandler } from '../src/domain/auth/authRideBoundary';
 import '../src/domain/ride/backgroundRideLocation';
 import { RideSyncProvider } from '../src/domain/ride/RideSyncContext';
+import { pauseRecordingRideForAuthTransition } from '../src/domain/ride/rideAuthTransition';
 import { GajaColors } from '../src/shared/design/tokens';
+
+registerAuthRideTransitionHandler(pauseRecordingRideForAuthTransition);
 
 export default function RootLayout() {
   const queryClient = useMemo(() => new QueryClient(), []);
