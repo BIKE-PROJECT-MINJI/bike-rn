@@ -32,6 +32,7 @@ coverage/
 ARTIFACTS/
 reports/
 output/
+/build/
 
 # macOS
 .DS_Store

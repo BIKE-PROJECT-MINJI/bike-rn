@@ -10,7 +10,7 @@ export function CoursesScreen() {
 
   return (
     <GajaScreen>
-      <GajaCard title="코스 목록" subtitle="백엔드 `/api/v1/courses` 계약을 Expo Go에서 확인합니다.">
+      <GajaCard title="코스 목록" subtitle="난이도와 예상 시간을 비교하고 원하는 코스를 선택하세요.">
         {coursesQuery.isPending ? <LoadingStateView message="코스 목록을 불러오는 중입니다." /> : null}
         {coursesQuery.error ? (
           <ErrorStateView title="코스 목록 실패" message={coursesQuery.error.message} onRetry={() => coursesQuery.refetch()} />

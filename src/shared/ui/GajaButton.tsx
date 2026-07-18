@@ -11,6 +11,8 @@ type Props = {
 export function GajaButton({ label, onPress, variant = 'primary', disabled = false }: Props) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
       disabled={disabled}
       onPress={onPress}
       style={[

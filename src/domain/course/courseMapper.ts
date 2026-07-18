@@ -32,13 +32,22 @@ const courseListDataSchema = z.object({
 });
 
 const routePointSchema = z.object({
-  pointOrder: z.coerce.number().default(0),
-  latitude: z.coerce.number().default(0),
-  longitude: z.coerce.number().default(0),
+  pointOrder: z.number().int().positive(),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
 });
 
 const courseRoutePointsDataSchema = z.object({
   points: z.array(routePointSchema).optional().default([]),
+}).superRefine((value, context) => {
+  const orders = new Set<number>();
+  for (const point of value.points) {
+    if (orders.has(point.pointOrder)) {
+      context.addIssue({ code: 'custom', message: 'route point 순번은 중복될 수 없습니다.' });
+      return;
+    }
+    orders.add(point.pointOrder);
+  }
 });
 
 export function mapCourseList(payload: unknown): CoursesPageUiModel {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { classifyRidePointLink } from './rideDistanceQuality';
 
 const ridePointSchema = z.object({
   pointOrder: z.number().int().positive(),
@@ -22,8 +23,15 @@ const rideDraftStatusSchema = z.enum([
   'FAILED_TERMINAL',
 ]);
 
+const rideModeSchema = z.enum(['FREE', 'COURSE', 'PARTY']);
+
 const rideDraftSchema = z.object({
   clientRideId: z.string().min(1).max(80),
+  ownerUserId: z.number().int().positive().nullable().default(null),
+  mode: rideModeSchema.default('FREE'),
+  courseId: z.number().int().positive().nullable().default(null),
+  courseTitle: z.string().min(1).max(200).nullable().default(null),
+  partyId: z.number().int().positive().nullable().default(null),
   status: rideDraftStatusSchema,
   startedAtIso: z.iso.datetime({ offset: true }),
   endedAtIso: z.iso.datetime({ offset: true }).nullable(),
@@ -36,12 +44,21 @@ const rideDraftSchema = z.object({
   lastErrorCode: z.string().nullable(),
   lastLocationErrorCode: z.string().nullable().default(null),
   rideRecordId: z.number().int().positive().nullable(),
+  finalizationStartedAtMs: z.number().int().nonnegative().nullable().default(null),
+  lastFinalizationPollAtMs: z.number().int().nonnegative().nullable().default(null),
 });
 
 export type RidePoint = z.infer<typeof ridePointSchema>;
 export type RideDraft = z.infer<typeof rideDraftSchema>;
 export type RideDraftStatus = z.infer<typeof rideDraftStatusSchema>;
+export type RideMode = z.infer<typeof rideModeSchema>;
 export type RidePointInput = Omit<RidePoint, 'pointOrder'>;
+export type RideStartContext = {
+  readonly mode: RideMode;
+  readonly courseId: number | null;
+  readonly courseTitle: string | null;
+  readonly partyId: number | null;
+};
 
 export type RideReceipt = {
   readonly clientRideId: string;
@@ -51,9 +68,16 @@ export type RideReceipt = {
   readonly linkedCourseId: number | null;
 };
 
-export function createRideDraft(clientRideId: string, startedAtMs: number): RideDraft {
+export function createRideDraft(
+  clientRideId: string,
+  startedAtMs: number,
+  context: RideStartContext = { mode: 'FREE', courseId: null, courseTitle: null, partyId: null },
+  ownerUserId: number | null = null,
+): RideDraft {
   return rideDraftSchema.parse({
     clientRideId,
+    ownerUserId,
+    ...context,
     status: 'RECORDING',
     startedAtIso: new Date(startedAtMs).toISOString(),
     endedAtIso: null,
@@ -66,6 +90,8 @@ export function createRideDraft(clientRideId: string, startedAtMs: number): Ride
     lastErrorCode: null,
     lastLocationErrorCode: null,
     rideRecordId: null,
+    finalizationStartedAtMs: null,
+    lastFinalizationPollAtMs: null,
   });
 }
 
@@ -83,6 +109,10 @@ export function finishRideDraft(draft: RideDraft, endedAtMs: number): RideDraft 
     nextRetryAtMs: null,
     lastErrorCode: null,
   });
+}
+
+export function canManuallyRetryRide(draft: RideDraft): boolean {
+  return draft.status === 'FAILED_USER_ACTION';
 }
 
 export function appendRidePoint(draft: RideDraft, point: RidePointInput): RideDraft {
@@ -108,12 +138,14 @@ export function appendRidePointsFromOrder(
   let distanceDelta = 0;
   const orderedPoints = points.map((point, index) => {
     if (previous) {
-      distanceDelta += distanceBetweenMeters(
-        previous.latitude,
-        previous.longitude,
-        point.latitude,
-        point.longitude,
+      const decision = classifyRidePointLink(
+        previous,
+        point,
+        draft.activeSegmentStartedAtMs ?? Number.POSITIVE_INFINITY,
       );
+      if (decision.kind === 'ACCEPTED') {
+        distanceDelta += decision.distanceMeters;
+      }
     }
     const orderedPoint: RidePoint = { ...point, pointOrder: firstPointOrder + index };
     previous = orderedPoint;
@@ -192,24 +224,4 @@ class CorruptedRideDraftError extends Error {
     super('저장된 주행 데이터가 손상되었습니다.');
     this.name = 'CorruptedRideDraftError';
   }
-}
-
-function distanceBetweenMeters(
-  startLatitude: number,
-  startLongitude: number,
-  endLatitude: number,
-  endLongitude: number,
-): number {
-  const latitudeDelta = degreesToRadians(endLatitude - startLatitude);
-  const longitudeDelta = degreesToRadians(endLongitude - startLongitude);
-  const startLatitudeRadians = degreesToRadians(startLatitude);
-  const endLatitudeRadians = degreesToRadians(endLatitude);
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(startLatitudeRadians) * Math.cos(endLatitudeRadians) * Math.sin(longitudeDelta / 2) ** 2;
-  return 6_371_000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
-}
-
-function degreesToRadians(value: number): number {
-  return (value * Math.PI) / 180;
 }

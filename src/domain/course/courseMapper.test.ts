@@ -75,4 +75,17 @@ describe('courseMapper', () => {
       { pointOrder: 2, latitude: 37.2, longitude: 127.2 },
     ]);
   });
+
+  it('누락·범위 초과·중복 route point를 실제 좌표로 추측하지 않는다', () => {
+    expect(() => mapCourseRoutePoints({ data: { points: [{ pointOrder: 1, longitude: 127 }] } })).toThrow();
+    expect(() => mapCourseRoutePoints({ data: { points: [{ pointOrder: 1, latitude: 91, longitude: 127 }] } })).toThrow();
+    expect(() => mapCourseRoutePoints({
+      data: {
+        points: [
+          { pointOrder: 1, latitude: 37.1, longitude: 127.1 },
+          { pointOrder: 1, latitude: 37.2, longitude: 127.2 },
+        ],
+      },
+    })).toThrow();
+  });
 });

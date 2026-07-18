@@ -1,5 +1,5 @@
 export type AuthSession = {
-  readonly userId?: number;
+  readonly userId: number;
   readonly displayName: string;
   readonly email: string;
   readonly accessToken: string;

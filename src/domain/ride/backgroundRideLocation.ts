@@ -1,6 +1,10 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { appendRidePointsToQueue, loadActiveRideDraft, updateRideDraft } from './localRideQueue';
+import {
+  appendRidePointsToQueue,
+  loadAnyActiveRideDraftForBackgroundTask,
+  updateRideDraft,
+} from './localRideQueue';
 import { markRideLocationError, type RidePointInput } from './rideQueueModel';
 
 export const RIDE_LOCATION_TASK_NAME = 'gaja-background-ride-location-v1';
@@ -13,14 +17,14 @@ type RideLocationTaskData = {
 if (!TaskManager.isTaskDefined(RIDE_LOCATION_TASK_NAME)) {
   TaskManager.defineTask<RideLocationTaskData>(RIDE_LOCATION_TASK_NAME, async ({ data, error, executionInfo }) => {
     if (error !== null) {
-      const failedDraft = loadActiveRideDraft();
+      const failedDraft = loadAnyActiveRideDraftForBackgroundTask();
       if (failedDraft !== null) {
         await updateRideDraft(failedDraft.clientRideId, (draft) => markRideLocationError(draft, String(error.code)));
       }
       return;
     }
-    const draft = loadActiveRideDraft();
-    if (draft === null) {
+    const draft = loadAnyActiveRideDraftForBackgroundTask();
+    if (draft?.status !== 'RECORDING') {
       return;
     }
     const points: RidePointInput[] = data.locations.map(toRidePointInput);

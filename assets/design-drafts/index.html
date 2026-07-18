@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GAJA UI 전체 초안</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Pretendard, "Noto Sans KR", system-ui, sans-serif;
+        background: #151816;
+        color: #f4f7f5;
+      }
+
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #151816; }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        padding: 18px 20px 14px;
+        background: rgba(21, 24, 22, 0.94);
+        border-bottom: 1px solid #303632;
+        backdrop-filter: blur(14px);
+      }
+      h1 { margin: 0; font-size: 22px; letter-spacing: 0; }
+      header p { margin: 7px 0 0; color: #aeb8b1; font-size: 14px; }
+      main { max-width: 1480px; margin: 0 auto; padding: 24px 20px 48px; }
+      section + section { margin-top: 36px; }
+      h2 { margin: 0 0 14px; font-size: 17px; letter-spacing: 0; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 16px;
+      }
+      figure {
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid #343a36;
+        border-radius: 8px;
+        background: #202521;
+      }
+      button {
+        display: block;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: zoom-in;
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 390 / 844;
+        object-fit: cover;
+        object-position: top;
+        background: #fff;
+      }
+      figcaption { padding: 11px 12px 12px; font-size: 14px; color: #d7ddd9; }
+      dialog {
+        width: min(94vw, 560px);
+        max-height: 94vh;
+        padding: 0;
+        border: 1px solid #404841;
+        border-radius: 8px;
+        background: #0e100f;
+      }
+      dialog::backdrop { background: rgba(0, 0, 0, 0.82); }
+      dialog img { display: block; width: 100%; height: auto; }
+      dialog form { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding: 10px; background: rgba(14, 16, 15, 0.9); }
+      dialog button { width: auto; padding: 9px 14px; border-radius: 6px; background: #0aaf4b; color: white; cursor: pointer; font-weight: 700; }
+      @media (max-width: 520px) {
+        header { padding-inline: 16px; }
+        main { padding: 18px 12px 36px; }
+        .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        figcaption { padding: 9px; font-size: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>GAJA UI 전체 초안</h1>
+      <p>이미지를 누르면 원본 크기로 확인할 수 있습니다.</p>
+    </header>
+    <main>
+      <section>
+        <h2>홈 구조</h2>
+        <div class="grid">
+          <figure><button data-src="home/home_01_map_first.png"><img src="home/home_01_map_first.png" alt="지도 중심 홈" /></button><figcaption>홈 1안 · 지도 중심</figcaption></figure>
+          <figure><button data-src="home/home_02_action_first.png"><img src="home/home_02_action_first.png" alt="행동 중심 홈" /></button><figcaption>홈 2안 · 행동 중심</figcaption></figure>
+          <figure><button data-src="home/home_03_route_planner.png"><img src="home/home_03_route_planner.png" alt="코스 생성 중심 홈" /></button><figcaption>홈 3안 · 코스 생성 중심</figcaption></figure>
+        </div>
+      </section>
+      <section>
+        <h2>주행 HUD</h2>
+        <div class="grid">
+          <figure><button data-src="hud/hud_01_speed_centered_final.png"><img src="hud/hud_01_speed_centered_final.png" alt="속도 중심 자유주행 HUD" /></button><figcaption>자유주행 · 속도 중앙 최종안</figcaption></figure>
+          <figure><button data-src="hud/hud_course_following.png"><img src="hud/hud_course_following.png" alt="코스 따라가기 HUD" /></button><figcaption>코스 따라가기</figcaption></figure>
+          <figure><button data-src="hud/hud_layer_quick_panel.png"><img src="hud/hud_layer_quick_panel.png" alt="지도 레이어 퀵 패널" /></button><figcaption>방위·풍향·레이어 퀵 패널</figcaption></figure>
+          <figure><button data-src="hud/hud_02_night_cockpit_weather.png"><img src="hud/hud_02_night_cockpit_weather.png" alt="야간 HUD 보관안" /></button><figcaption>야간 2안 · 보관용</figcaption></figure>
+        </div>
+      </section>
+      <section>
+        <h2>코스와 AI 추천</h2>
+        <div class="grid">
+          <figure><button data-src="screens/courses_list.png"><img src="screens/courses_list.png" alt="코스 목록" /></button><figcaption>코스 목록</figcaption></figure>
+          <figure><button data-src="screens/course_detail.png"><img src="screens/course_detail.png" alt="코스 상세" /></button><figcaption>코스 상세</figcaption></figure>
+          <figure><button data-src="screens/ai_route_create.png"><img src="screens/ai_route_create.png" alt="AI 코스 생성" /></button><figcaption>AI 코스 생성</figcaption></figure>
+          <figure><button data-src="screens/ai_route_candidates.png"><img src="screens/ai_route_candidates.png" alt="AI 코스 후보" /></button><figcaption>AI 코스 후보 비교</figcaption></figure>
+        </div>
+      </section>
+      <section>
+        <h2>기록</h2>
+        <div class="grid">
+          <figure><button data-src="screens/records_list.png"><img src="screens/records_list.png" alt="주행 기록 목록" /></button><figcaption>주행 기록 목록</figcaption></figure>
+          <figure><button data-src="screens/record_detail.png"><img src="screens/record_detail.png" alt="주행 기록 상세" /></button><figcaption>주행 기록 상세</figcaption></figure>
+        </div>
+      </section>
+      <section>
+        <h2>파티와 마이</h2>
+        <div class="grid">
+          <figure><button data-src="screens/party_list.png"><img src="screens/party_list.png" alt="파티 목록" /></button><figcaption>파티 목록</figcaption></figure>
+          <figure><button data-src="screens/party_detail.png"><img src="screens/party_detail.png" alt="파티 상세" /></button><figcaption>파티 상세</figcaption></figure>
+          <figure><button data-src="screens/profile.png"><img src="screens/profile.png" alt="마이" /></button><figcaption>마이</figcaption></figure>
+        </div>
+      </section>
+    </main>
+    <dialog id="preview">
+      <img id="preview-image" alt="선택한 UI 원본" />
+      <form method="dialog"><button type="submit">닫기</button></form>
+    </dialog>
+    <script>
+      const dialog = document.querySelector('#preview');
+      const image = document.querySelector('#preview-image');
+      document.querySelectorAll('[data-src]').forEach((button) => {
+        button.addEventListener('click', () => {
+          image.src = button.dataset.src;
+          dialog.showModal();
+        });
+      });
+    </script>
+  </body>
+</html>

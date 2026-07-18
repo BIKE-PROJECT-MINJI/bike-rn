@@ -30,4 +30,15 @@ describe('ridePolicyMapper', () => {
       distanceAlongRouteM: 1200,
     });
   });
+
+  it('알 수 없는 서버 상태를 정상 주행으로 완화하지 않는다', () => {
+    expect(() => mapRidePolicyEvaluation({
+      data: {
+        phase: 'ACTIVE',
+        startGate: { status: 'ELIGIBLE' },
+        offRoute: { status: 'NEW_SERVER_STATE' },
+        completion: { status: 'IN_PROGRESS' },
+      },
+    })).toThrow();
+  });
 });

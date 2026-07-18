@@ -1,145 +1,150 @@
 import { useQuery } from '@tanstack/react-query';
-import { router } from 'expo-router';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { loadAuthSession } from '../../domain/auth/authSessionStore';
-import { fetchRideRecords } from '../../domain/ride/rideApi';
-import { rideElapsedMs } from '../../domain/ride/rideQueueModel';
 import { formatHudDistance, formatHudDuration } from '../../domain/ride/rideTracking';
 import { GajaColors } from '../../shared/design/tokens';
-import { GajaButton } from '../../shared/ui/GajaButton';
-import { GajaCard, StatusBadge } from '../../shared/ui/GajaCard';
-import { GajaScreen } from '../../shared/ui/GajaScreen';
+import { GajaFullScreen } from '../../shared/ui/GajaScreen';
+import { PartyLocationSharingPanel } from '../party/PartyLocationSharingPanel';
+import { usePartyLocationSharing } from '../party/usePartyLocationSharing';
+import { RideEndConfirmation } from './RideEndConfirmation';
+import { RideHudDock } from './RideHudDock';
+import { RideHudMap } from './RideHudMap';
+import { RideHudTopBar } from './RideHudTopBar';
+import { RidePolicyBanner } from './RidePolicyBanner';
+import { rideSpeedKmh } from './rideHudModel';
+import { displayRideHeading } from './rideHudModel';
+import { useCourseRidePolicy } from './useCourseRidePolicy';
 import { useRideSession } from './useRideSession';
+import { useRideWeather } from './useRideWeather';
 
 export function FreeRideHudScreen() {
-  const sessionQuery = useQuery({ queryKey: ['auth-session'], queryFn: loadAuthSession });
-  const accessToken = sessionQuery.data?.accessToken ?? null;
-  const ride = useRideSession(accessToken);
-  const recordsQuery = useQuery({
-    queryKey: ['ride-records', ride.receipt?.rideRecordId],
-    queryFn: () => fetchRideRecords(requireAccessToken(accessToken)),
-    enabled: accessToken !== null,
-  });
-  const isTracking = ride.draft?.status === 'RECORDING' || ride.draft?.status === 'PAUSED';
-  const needsLogin = accessToken === null;
-  const canRetry =
-    ride.draft?.status === 'QUEUED' ||
-    ride.draft?.status === 'UPLOADING' ||
-    ride.draft?.status === 'RETRY_WAIT' ||
-    (ride.draft?.status === 'FAILED_USER_ACTION' && accessToken !== null) ||
-    (ride.draft?.status === 'FAILED_TERMINAL' && ride.draft.lastErrorCode === 'UNEXPECTED_CLIENT_ERROR');
-  const elapsedMs = ride.draft === null ? 0 : rideElapsedMs(ride.draft, ride.nowMs);
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ courseId?: string; courseTitle?: string; partyId?: string }>();
+  const parsedCourseId = Number(params.courseId ?? 0);
+  const parsedPartyId = Number(params.partyId ?? 0);
+  const [showEndConfirmation, setShowEndConfirmation] = useState(false);
+  const [partySharingEnabled, setPartySharingEnabled] = useState(false);
+  const ride = useRideSession();
+  const activeDraft = ride.pendingDrafts.find((draft) => draft.status === 'RECORDING' || draft.status === 'PAUSED') ?? null;
+  const courseId = Number.isInteger(parsedCourseId) && parsedCourseId > 0 ? parsedCourseId : activeDraft?.courseId ?? null;
+  const partyId = Number.isInteger(parsedPartyId) && parsedPartyId > 0 ? parsedPartyId : activeDraft?.partyId ?? null;
+  const courseTitle = params.courseTitle ?? activeDraft?.courseTitle ?? '코스 따라가기';
+  const authSessionQuery = useQuery({ queryKey: ['auth-session', 'party-hud'], queryFn: loadAuthSession });
+  const partySharing = usePartyLocationSharing(
+    partyId,
+    authSessionQuery.data?.accessToken ?? null,
+    partySharingEnabled && activeDraft !== null,
+  );
+  const weatherQuery = useRideWeather(activeDraft);
+  const paused = activeDraft?.status === 'PAUSED';
+  const elapsedMs = activeDraft === null ? 0 : ride.elapsedMs(activeDraft);
+  const courseRide = useCourseRidePolicy(courseId, activeDraft, ride.nowMs);
+
+  const start = () => {
+    if (!ride.authenticated) {
+      router.push('/(tabs)/profile');
+      return;
+    }
+    void ride.start({
+      mode: partyId !== null ? 'PARTY' : courseId !== null ? 'COURSE' : 'FREE',
+      courseId,
+      courseTitle: courseId === null ? null : courseTitle,
+      partyId,
+    });
+  };
 
   return (
-    <GajaScreen>
-      <GajaCard title="자유 주행" subtitle="화면 잠금과 네트워크 끊김에도 주행 원본을 먼저 기기에 보존합니다.">
-        <View style={styles.badges}>
-          <StatusBadge label={accessToken === null ? '로그인 필요' : '로그인됨'} tone={accessToken === null ? 'warning' : 'success'} />
-          <StatusBadge label={ride.draft?.status ?? 'READY_TO_START'} tone={statusTone(ride.draft?.status)} />
-        </View>
-        <Text style={styles.message}>{ride.message}</Text>
-        {ride.errorMessage ? <Text style={styles.error}>{ride.errorMessage}</Text> : null}
-        {ride.draft?.lastLocationErrorCode ? (
-          <Text style={styles.error}>위치 수집 오류: {ride.draft.lastLocationErrorCode}</Text>
+    <GajaFullScreen>
+      <StatusBar style="dark" />
+      <RideHudMap
+        draft={activeDraft}
+        nowMs={ride.nowMs}
+        plannedRoute={courseRide.routePoints}
+        partyLocations={[...partySharing.locations.values()]}
+      />
+      <RideHudTopBar
+        draft={activeDraft}
+        topInset={insets.top}
+        title={courseId === null ? '자유주행' : courseTitle}
+        weather={weatherQuery.data ?? null}
+        weatherLoading={weatherQuery.isPending}
+        weatherError={weatherQuery.error}
+        headingDeg={displayRideHeading(activeDraft, ride.nowMs)}
+      />
+      <View pointerEvents="box-none" style={[styles.overlayStack, { top: insets.top + 132 }]}>
+        {courseId === null ? (
+          <RideStatusBanner message={ride.errorMessage ?? ride.message} error={ride.errorMessage !== null} />
+        ) : (
+          <RidePolicyBanner
+            policy={courseRide.policy}
+            loading={courseRide.routeLoading || courseRide.policyLoading}
+            error={courseRide.routeError ?? courseRide.policyError}
+            stale={courseRide.policyStale}
+            topInset={0}
+            embedded
+          />
+        )}
+        {partyId !== null && activeDraft !== null ? (
+          <PartyLocationSharingPanel
+            enabled={partySharingEnabled}
+            status={partySharing.status}
+            visibleMemberCount={partySharing.locations.size}
+            errorMessage={partySharing.errorMessage}
+            topInset={0}
+            embedded
+            onEnabledChange={setPartySharingEnabled}
+          />
         ) : null}
-        {needsLogin ? (
-          <GajaButton label="로그인하러 가기" onPress={() => router.push('/(tabs)/profile')} />
-        ) : null}
-        {ride.errorMessage?.includes('항상 허용') ? (
-          <GajaButton label="Android 위치 설정 열기" variant="secondary" onPress={() => Linking.openSettings()} />
-        ) : null}
-      </GajaCard>
-
-      <GajaCard title="주행 상태" subtitle={ride.draft ? '로컬 저장 ID가 생성되었습니다.' : '새 주행을 시작할 수 있습니다.'}>
-        <View style={styles.metrics}>
-          <Metric label="거리" value={formatHudDistance(ride.draft?.distanceMeters ?? 0)} />
-          <Metric label="시간" value={formatHudDuration(elapsedMs)} />
-          <Metric label="포인트" value={`${ride.draft?.routePoints.length ?? 0}`} />
-        </View>
-        {!isTracking && ride.draft === null ? <GajaButton label="주행 시작" onPress={() => void ride.start()} disabled={ride.busy} /> : null}
-        {isTracking ? (
-          <View style={styles.actions}>
-            <GajaButton
-              label={ride.draft?.status === 'PAUSED' ? '재개' : '일시정지'}
-              variant="secondary"
-              onPress={() => void ride.togglePause()}
-              disabled={ride.busy}
-            />
-            <GajaButton label="주행 종료 및 저장" onPress={() => void ride.finish()} disabled={ride.busy} />
-          </View>
-        ) : null}
-        {canRetry ? (
-          <GajaButton label="지금 다시 전송" onPress={() => void ride.retry()} disabled={ride.busy} />
-        ) : null}
-        {ride.draft?.status === 'FAILED_TERMINAL' ? (
-          <Text style={styles.error}>자동 재전송을 중단했습니다. 로컬 원본은 삭제하지 않았습니다.</Text>
-        ) : null}
-      </GajaCard>
-
-      {ride.receipt ? (
-        <GajaCard title="최근 저장 완료" subtitle="동일한 로컬 저장 ID로 서버 영수증을 확인했습니다.">
-          <StatusBadge label="READY" tone="success" />
-          <Text style={styles.meta}>서버 주행 기록 #{ride.receipt.rideRecordId}</Text>
-          <Text style={styles.meta}>{ride.receipt.linkedCourseId ? `연결 코스 #${ride.receipt.linkedCourseId}` : '코스화 가능 상태'}</Text>
-        </GajaCard>
-      ) : null}
-
-      <GajaCard title="서버 저장 기록" subtitle="현재 로그인 계정의 최근 주행 결과입니다.">
-        {recordsQuery.isPending ? <Text style={styles.meta}>기록을 불러오는 중입니다.</Text> : null}
-        {recordsQuery.error ? <Text style={styles.error}>{recordsQuery.error.message}</Text> : null}
-        {recordsQuery.data?.slice(0, 3).map((record) => (
-          <View key={record.rideRecordId} style={styles.recordRow}>
-            <Text style={styles.meta}>#{record.rideRecordId} · {formatHudDistance(record.distanceM)}</Text>
-            <StatusBadge label={record.finalizationStatus} tone={record.finalizationStatus === 'READY' ? 'success' : 'warning'} />
-          </View>
-        ))}
-      </GajaCard>
-    </GajaScreen>
+      </View>
+      <RideHudDock
+        active={activeDraft !== null}
+        bottomInset={insets.bottom}
+        busy={ride.busy}
+        distance={formatHudDistance(activeDraft?.distanceMeters ?? 0)}
+        duration={formatHudDuration(elapsedMs)}
+        onEnd={() => setShowEndConfirmation(true)}
+        onStart={start}
+        onTogglePause={() => void ride.togglePause()}
+        paused={paused}
+        speedKmh={rideSpeedKmh(activeDraft)}
+        startLabel={ride.authenticated ? (courseId === null ? '자유주행 시작' : '코스 주행 시작') : '로그인 후 시작'}
+      />
+      <RideEndConfirmation
+        busy={ride.busy}
+        onCancel={() => setShowEndConfirmation(false)}
+        onConfirm={() => {
+          void ride.finish().finally(() => setShowEndConfirmation(false));
+        }}
+        visible={showEndConfirmation}
+      />
+    </GajaFullScreen>
   );
 }
 
-function Metric({ label, value }: { readonly label: string; readonly value: string }) {
+function RideStatusBanner({ message, error }: { readonly message: string; readonly error: boolean }) {
   return (
-    <View style={styles.metric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
+    <View pointerEvents="none" style={[styles.banner, error ? styles.errorBanner : null]}>
+      <Text numberOfLines={2} style={[styles.bannerText, error ? styles.errorText : null]}>{message}</Text>
     </View>
   );
 }
 
-function statusTone(status: string | undefined): 'success' | 'warning' | 'danger' {
-  if (status === 'RECORDING' || status === 'FINALIZING') {
-    return 'success';
-  }
-  if (status === 'FAILED_TERMINAL' || status === 'FAILED_USER_ACTION') {
-    return 'danger';
-  }
-  return 'warning';
-}
-
-function requireAccessToken(accessToken: string | null): string {
-  if (accessToken === null) {
-    throw new MissingAccessTokenError();
-  }
-  return accessToken;
-}
-
-class MissingAccessTokenError extends Error {
-  constructor() {
-    super('로그인이 필요합니다.');
-    this.name = 'MissingAccessTokenError';
-  }
-}
-
 const styles = StyleSheet.create({
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  message: { color: GajaColors.textPrimary, fontSize: 15, lineHeight: 22, fontWeight: '700' },
-  error: { color: GajaColors.danger, fontSize: 14, lineHeight: 20 },
-  meta: { color: GajaColors.textSecondary, fontSize: 13 },
-  metrics: { flexDirection: 'row', gap: 10 },
-  metric: { flex: 1, backgroundColor: GajaColors.surfaceMuted, padding: 12, borderRadius: 8 },
-  metricLabel: { color: GajaColors.textMuted, fontSize: 12 },
-  metricValue: { color: GajaColors.textPrimary, fontSize: 20, fontWeight: '800' },
-  actions: { flexDirection: 'row', gap: 10 },
-  recordRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  overlayStack: { position: 'absolute', left: 16, right: 16, gap: 8 },
+  banner: {
+    minHeight: 42,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderColor: GajaColors.border,
+    borderWidth: 1,
+  },
+  errorBanner: { backgroundColor: '#FFF4F2', borderColor: '#F5B7AE' },
+  bannerText: { color: GajaColors.textSecondary, fontSize: 12, lineHeight: 18, fontWeight: '700', textAlign: 'center' },
+  errorText: { color: GajaColors.danger },
 });

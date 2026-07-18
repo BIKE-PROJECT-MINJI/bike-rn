@@ -1,10 +1,15 @@
 import { PropsWithChildren } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GajaColors, GajaSpacing } from '../design/tokens';
 
 export function GajaScreen({ children }: PropsWithChildren) {
+  const insets = useSafeAreaInsets();
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={[styles.content, { paddingTop: GajaSpacing.screen + insets.top, paddingBottom: GajaSpacing.screen + insets.bottom }]}
+    >
       {children}
     </ScrollView>
   );
