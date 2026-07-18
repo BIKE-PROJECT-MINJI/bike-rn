@@ -9,6 +9,7 @@ const mockAccountARide: RideDraft = createRideDraft(
   11,
 );
 const mockReconcileRideLocationCollection = jest.fn(async () => undefined);
+const mockPauseOrResumeRide = jest.fn(async () => ({ ...mockAccountARide, status: 'PAUSED' as const }));
 const mockRefreshLocal = jest.fn();
 
 jest.mock('../../domain/ride/localRideQueue', () => ({
@@ -19,7 +20,7 @@ jest.mock('../../domain/ride/localRideQueue', () => ({
 }));
 jest.mock('../../domain/ride/rideLifecycle', () => ({
   createRideLifecycleGate: () => ({ run: (operation: () => Promise<void>) => operation() }),
-  pauseOrResumeRide: jest.fn(),
+  pauseOrResumeRide: mockPauseOrResumeRide,
   queueRideForUpload: jest.fn(),
   reconcileRideLocationCollection: mockReconcileRideLocationCollection,
 }));
@@ -60,13 +61,14 @@ describe('useRideSession account isolation', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('keeps account A background collection running without exposing it to account B', async () => {
+  it('pauses account A collection before account B can append locations', async () => {
     const { result, unmount } = renderHook(() => useRideSession());
 
-    await waitFor(() => expect(mockReconcileRideLocationCollection).toHaveBeenCalledWith(
+    await waitFor(() => expect(mockPauseOrResumeRide).toHaveBeenCalledWith(
       mockAccountARide,
       expect.any(Object),
     ));
+    expect(mockReconcileRideLocationCollection).not.toHaveBeenCalled();
     expect(result.current.draft).toBeNull();
     expect(result.current.pendingDrafts).toEqual([]);
 
