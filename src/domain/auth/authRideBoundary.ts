@@ -1,4 +1,7 @@
-export type AuthRideTransitionHandler = (nextUserId: number | null) => Promise<void>;
+export type AuthRideTransitionHandler = (
+  nextUserId: number | null,
+  expectedCurrentUserId?: number | null,
+) => Promise<void>;
 
 let authRideTransitionHandler: AuthRideTransitionHandler | null = null;
 
@@ -6,11 +9,14 @@ export function registerAuthRideTransitionHandler(handler: AuthRideTransitionHan
   authRideTransitionHandler = handler;
 }
 
-export async function pauseRideForAuthTransition(nextUserId: number | null): Promise<void> {
+export async function pauseRideForAuthTransition(
+  nextUserId: number | null,
+  expectedCurrentUserId?: number | null,
+): Promise<void> {
   if (authRideTransitionHandler === null) {
     throw new MissingAuthRideTransitionHandlerError();
   }
-  await authRideTransitionHandler(nextUserId);
+  await authRideTransitionHandler(nextUserId, expectedCurrentUserId);
 }
 
 class MissingAuthRideTransitionHandlerError extends Error {

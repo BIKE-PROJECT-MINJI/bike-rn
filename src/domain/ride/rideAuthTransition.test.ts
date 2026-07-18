@@ -45,4 +45,17 @@ describe('ride auth transition', () => {
     // Then
     expect(pauseOrResumeRide).not.toHaveBeenCalled();
   });
+
+  it('does not pause a new account ride for an old account expiration', async () => {
+    // Given
+    jest.mocked(loadAnyActiveRideDraftForBackgroundTask).mockReturnValue(
+      createRideDraft('ride-account-b', 1_700_000_000_000, undefined, 22),
+    );
+
+    // When
+    await pauseRecordingRideForAuthTransition(null, 11);
+
+    // Then
+    expect(pauseOrResumeRide).not.toHaveBeenCalled();
+  });
 });

@@ -68,13 +68,15 @@ export async function refreshAccessToken(failedAccessToken: string): Promise<str
 }
 
 export async function expireAuthSession(expectedAccessToken?: string): Promise<ApiClientError> {
+  let expectedCurrentUserId: number | null | undefined;
   if (expectedAccessToken !== undefined) {
     const current = await loadAuthSession();
-    if (current !== null && current.accessToken !== expectedAccessToken) {
+    if (current === null || current.accessToken !== expectedAccessToken) {
       return authSessionChangedError();
     }
+    expectedCurrentUserId = current.userId ?? null;
   }
-  await pauseRideForAuthTransition(null);
+  await pauseRideForAuthTransition(null, expectedCurrentUserId);
   if (expectedAccessToken === undefined) {
     await clearAuthSession();
   } else {

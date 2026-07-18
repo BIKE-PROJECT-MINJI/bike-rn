@@ -33,7 +33,7 @@ describe('auth refresh ride isolation', () => {
     await expireAuthSession('account-a-access');
 
     // Then
-    expect(pauseRideForAuthTransition).toHaveBeenCalledWith(null);
+    expect(pauseRideForAuthTransition).toHaveBeenCalledWith(null, 11);
     expect(jest.mocked(pauseRideForAuthTransition).mock.invocationCallOrder[0]).toBeLessThan(
       jest.mocked(clearAuthSessionIfAccessToken).mock.invocationCallOrder[0] ?? 0,
     );
