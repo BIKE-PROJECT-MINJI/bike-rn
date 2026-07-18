@@ -40,12 +40,22 @@ jest.mock('./rideApi', () => ({
   recoverRideStatus: jest.fn().mockResolvedValue(null),
   uploadRideDraft: mockUploadRideDraft,
 }));
+jest.mock('./backgroundRideLocation', () => ({
+  restartBackgroundRideLocation: jest.fn(async () => undefined),
+  stopBackgroundRideLocation: jest.fn(async () => undefined),
+}));
 jest.mock('./localRideQueue', () => ({
-  completeRideDraft: jest.fn(async (receipt: RideReceipt) => {
+  quarantineLegacyActiveRides: jest.fn(async () => undefined),
+  completeRideDraft: jest.fn(async (receipt: RideReceipt, ownerUserId: number) => {
+    if (ownerUserId !== TEST_USER_ID) {
+      throw new Error('완료 영수증 소유자가 현재 사용자와 다릅니다.');
+    }
     mockReceipts.push(receipt);
     mockDrafts.delete(receipt.clientRideId);
   }),
-  listPendingRideDrafts: jest.fn(() => [...mockDrafts.values()]),
+  listPendingRideDrafts: jest.fn((ownerUserId: number | null) =>
+    [...mockDrafts.values()].filter((draft) => draft.ownerUserId === ownerUserId)),
+  loadLegacyRideRecoverySummary: jest.fn(() => ({ activeDraftCount: 0, receiptCount: 0, totalCount: 0 })),
   loadLatestRideReceipt: jest.fn(() => mockReceipts.at(-1) ?? null),
   loadRideDraft: jest.fn((clientRideId: string) => mockDrafts.get(clientRideId) ?? null),
   saveRideDraft: jest.fn(async (draft: RideDraft) => {

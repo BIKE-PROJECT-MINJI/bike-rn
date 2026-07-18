@@ -1,4 +1,4 @@
-import type { RideReceipt } from './rideQueueModel';
+import { createRideDraft, finishRideDraft, type RideReceipt } from './rideQueueModel';
 
 type ReceiptRow = {
   readonly clientRideId: string;
@@ -12,9 +12,16 @@ let mockFailure: 'INSERT_RECEIPT' | 'DELETE_POINTS' | 'DELETE_PAYLOAD' | null = 
 
 const mockDatabase = {
   execSync: jest.fn(),
-  getFirstSync: jest.fn((sql: string) =>
-    sql.includes('PRAGMA user_version') ? { user_version: 0 } : null,
-  ),
+  getFirstSync: jest.fn((sql: string, ...parameters: unknown[]) => {
+    if (sql.includes('PRAGMA user_version')) {
+      return { user_version: 2 };
+    }
+    if (sql.includes('FROM ride_outbox')) {
+      const payload = mockOutbox.get(requireString(parameters[0]));
+      return payload === undefined ? null : { payload };
+    }
+    return null;
+  }),
   runSync: jest.fn((sql: string, ...parameters: unknown[]) => {
     if (sql.includes('INSERT INTO ride_receipts')) {
       if (mockFailure === 'INSERT_RECEIPT') {
@@ -66,7 +73,15 @@ describe('ride receipt transaction rollback', () => {
     mockReceipts.clear();
     mockFailure = null;
     jest.clearAllMocks();
-    mockOutbox.set('ride-ready', 'raw-gps-payload');
+    mockOutbox.set('ride-ready', JSON.stringify(finishRideDraft(
+      createRideDraft(
+        'ride-ready',
+        1_700_000_000_000,
+        { mode: 'FREE', courseId: null, courseTitle: null, partyId: null },
+        42,
+      ),
+      1_700_000_060_000,
+    )));
     mockPoints.set('ride-ready', [1, 2, 3]);
   });
 
@@ -77,11 +92,11 @@ describe('ride receipt transaction rollback', () => {
       mockFailure = failure;
 
       // When
-      const completion = completeRideDraft(readyReceipt());
+      const completion = completeRideDraft(readyReceipt(), 42);
 
       // Then
       await expect(completion).rejects.toBeInstanceOf(InjectedStorageError);
-      expect(mockOutbox.get('ride-ready')).toBe('raw-gps-payload');
+      expect(mockOutbox.has('ride-ready')).toBe(true);
       expect(mockPoints.get('ride-ready')).toEqual([1, 2, 3]);
       expect(mockReceipts.has('ride-ready')).toBe(false);
     },

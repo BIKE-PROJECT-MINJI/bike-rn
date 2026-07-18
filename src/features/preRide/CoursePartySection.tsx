@@ -17,6 +17,7 @@ type CoursePartySectionProps = {
   readonly courseId: number;
   readonly courseTitle: string | null;
   readonly accessToken: string | null;
+  readonly userId: number | null;
   readonly onConfirmRide: (partyId: number) => void;
 };
 
@@ -24,11 +25,12 @@ export function CoursePartySection({
   courseId,
   courseTitle,
   accessToken,
+  userId,
   onConfirmRide,
 }: CoursePartySectionProps) {
   const queryClient = useQueryClient();
   const partiesQuery = useQuery({
-    queryKey: ['ride-parties', courseId],
+    queryKey: ['ride-parties', courseId, userId],
     queryFn: () => fetchRideParties(courseId, accessToken),
     enabled: courseId > 0 && accessToken !== null,
     refetchInterval: 3_000,

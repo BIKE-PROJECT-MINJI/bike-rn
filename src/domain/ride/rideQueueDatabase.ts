@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 export const rideQueueDatabase = SQLite.openDatabaseSync('gaja-ride-queue.db');
-export const RIDE_QUEUE_SCHEMA_VERSION = 1;
+export const RIDE_QUEUE_SCHEMA_VERSION = 2;
 
 type SchemaVersionRow = { readonly user_version: number };
 type SchemaMigration = {
@@ -13,6 +13,7 @@ let schemaReady = false;
 
 const schemaMigrations: readonly SchemaMigration[] = [
   { targetVersion: 1, apply: createVersion1Schema },
+  { targetVersion: 2, apply: addReceiptOwner },
 ];
 
 export function ensureRideQueueTables(): void {
@@ -94,6 +95,14 @@ function createVersion1Schema(): void {
       point_key TEXT NOT NULL,
       PRIMARY KEY (client_ride_id, point_key)
     );
+  `);
+}
+
+function addReceiptOwner(): void {
+  rideQueueDatabase.execSync(`
+    ALTER TABLE ride_receipts ADD COLUMN owner_user_id INTEGER;
+    CREATE INDEX IF NOT EXISTS idx_ride_receipts_owner_completed
+      ON ride_receipts(owner_user_id, completed_at DESC);
   `);
 }
 

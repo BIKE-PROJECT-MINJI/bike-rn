@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { loadAuthSession } from '../../domain/auth/authSessionStore';
 import { fetchCourses, fetchFeaturedCourses } from '../../domain/course/courseService';
-import { listPendingRideDrafts } from '../../domain/ride/localRideQueue';
+import { useRideSyncCoordinator } from '../../domain/ride/RideSyncContext';
 import { GajaColors } from '../../shared/design/tokens';
 import { GajaScreen } from '../../shared/ui/GajaScreen';
 import { ErrorStateView, LoadingStateView } from '../../shared/ui/StateViews';
@@ -14,16 +14,12 @@ import { HomeHeader } from './HomeHeader';
 import { countPendingRideUploads } from './homeRideSummary';
 
 export function HomeScreen() {
+  const rideSync = useRideSyncCoordinator();
   const sessionQuery = useQuery({ queryKey: ['auth-session'], queryFn: loadAuthSession });
   const featuredQuery = useQuery({ queryKey: ['featured-courses'], queryFn: fetchFeaturedCourses });
   const coursesQuery = useQuery({ queryKey: ['courses-home'], queryFn: () => fetchCourses(4) });
-  const pendingQuery = useQuery({
-    queryKey: ['pending-rides-home'],
-    queryFn: async () => listPendingRideDrafts(),
-    refetchInterval: 5_000,
-  });
   const courses = featuredQuery.data?.length ? featuredQuery.data : coursesQuery.data?.items ?? [];
-  const pendingCount = countPendingRideUploads(pendingQuery.data ?? []);
+  const pendingCount = countPendingRideUploads(rideSync.pendingDrafts);
 
   return (
     <GajaScreen>

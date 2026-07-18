@@ -8,6 +8,7 @@ import {
 import {
   createRideDraftIfQueueEmpty,
   discardRideDraft,
+  loadAnyActiveRideDraftForBackgroundTask,
   loadActiveRideDraft,
 } from '../../domain/ride/localRideQueue';
 import {
@@ -34,15 +35,6 @@ import {
 import type { RideSessionActions, RideSessionState } from './rideSessionTypes';
 
 export function useRideSession(_legacyAccessToken?: string | null): RideSessionState & RideSessionActions {
-  const [nowMs, setNowMs] = useState(Date.now());
-  const [actionBusy, setActionBusy] = useState(false);
-  const [lifecycleGate] = useState(createRideLifecycleGate);
-  const [recoveryMessageGate] = useState(() =>
-    createActiveRideRecoveryMessageGate(loadActiveRideDraft()?.clientRideId ?? null),
-  );
-  const startInFlight = useRef(false);
-  const reconcileInFlight = useRef<Promise<void> | null>(null);
-
   const {
     accessToken,
     userId,
@@ -57,6 +49,15 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
     setMessage,
     setErrorMessage,
   } = useRideSyncCoordinator();
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [actionBusy, setActionBusy] = useState(false);
+  const [lifecycleGate] = useState(createRideLifecycleGate);
+  const [recoveryMessageGate] = useState(() =>
+    createActiveRideRecoveryMessageGate(loadActiveRideDraft(userId)?.clientRideId ?? null),
+  );
+  const startInFlight = useRef(false);
+  const reconcileInFlight = useRef<Promise<void> | null>(null);
+
   const busy = actionBusy || syncing;
   const elapsedMs = useCallback((rideDraft: RideDraft) => rideElapsedMs(rideDraft, nowMs), [nowMs]);
 
@@ -77,13 +78,14 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
     }
     const reconcile = lifecycleGate.run(async () => {
       try {
-        const active = loadActiveRideDraft();
-        if (active?.status === 'RECORDING') {
+        const deviceActive = loadAnyActiveRideDraftForBackgroundTask();
+        const ownedActive = deviceActive?.ownerUserId === userId ? deviceActive : null;
+        if (ownedActive?.status === 'RECORDING') {
           setErrorMessage(null);
         }
-        await reconcileRideLocationCollection(active, RIDE_RECOVERY_DEPENDENCIES);
-        const recoveryMessage = active?.status === 'RECORDING' || active?.status === 'PAUSED'
-          ? recoveryMessageGate.messageFor({ clientRideId: active.clientRideId, status: active.status })
+        await reconcileRideLocationCollection(deviceActive, RIDE_RECOVERY_DEPENDENCIES);
+        const recoveryMessage = ownedActive?.status === 'RECORDING' || ownedActive?.status === 'PAUSED'
+          ? recoveryMessageGate.messageFor({ clientRideId: ownedActive.clientRideId, status: ownedActive.status })
           : null;
         if (recoveryMessage !== null) {
           setMessage(recoveryMessage);
@@ -104,7 +106,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
         reconcileInFlight.current = null;
       }
     }
-  }, [lifecycleGate, recoveryMessageGate, refreshLocal]);
+  }, [lifecycleGate, recoveryMessageGate, refreshLocal, userId]);
 
   useEffect(() => {
     const scheduler = createActiveReconcileScheduler(reconcileLocalRide, () => AppState.currentState);
@@ -129,8 +131,9 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
           setErrorMessage('내 정보 탭에서 로그인한 뒤 주행을 시작해 주세요.');
           return;
         }
-        if (loadActiveRideDraft() !== null) {
-          setErrorMessage('이미 진행 중인 주행이 있습니다.');
+        const deviceActive = loadAnyActiveRideDraftForBackgroundTask();
+        if (deviceActive !== null) {
+          setErrorMessage(activeRideConflictMessage(deviceActive, userId));
           refreshLocal();
           return;
         }
@@ -172,7 +175,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
   }, [accessToken, lifecycleGate, refreshLocal, userId]);
 
   const togglePause = useCallback(async () => lifecycleGate.run(async () => {
-    const active = loadActiveRideDraft();
+    const active = loadActiveRideDraft(userId);
     if (active !== null) {
       setActionBusy(true);
       setErrorMessage(null);
@@ -187,10 +190,10 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
         setActionBusy(false);
       }
     }
-  }), [lifecycleGate, refreshLocal]);
+  }), [lifecycleGate, refreshLocal, userId]);
 
   const finish = useCallback(async () => lifecycleGate.run(async () => {
-    const active = loadActiveRideDraft();
+    const active = loadActiveRideDraft(userId);
     if (active === null) {
       return;
     }
@@ -219,7 +222,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
     } finally {
       setActionBusy(false);
     }
-  }), [lifecycleGate, refreshLocal]);
+  }), [lifecycleGate, refreshLocal, userId]);
 
   const retry = useCallback(async () => {
     if (draft !== null) {
@@ -250,3 +253,13 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
 }
 
 const UNKNOWN_RIDE_ERROR_MESSAGE = '주행 처리 중 알 수 없는 오류가 발생했습니다.';
+
+function activeRideConflictMessage(active: RideDraft, userId: number): string {
+  if (active.ownerUserId === userId) {
+    return '이미 진행 중인 주행이 있습니다.';
+  }
+  if (active.ownerUserId === null) {
+    return '이전 버전에서 기록한 주행이 남아 있습니다. 기록 탭에서 원본을 보존한 뒤 새 주행을 시작해 주세요.';
+  }
+  return '다른 계정에서 진행 중인 주행이 있습니다. 해당 계정으로 로그인해 먼저 종료해 주세요.';
+}

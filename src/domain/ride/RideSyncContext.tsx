@@ -28,9 +28,9 @@ export function RideSyncProvider({ children }: { readonly children: ReactNode })
   }), [queryClient]);
 
   useEffect(() => {
-    queryClient.setQueryData(['pending-rides-home'], pendingSync.pendingDrafts);
-    queryClient.setQueryData(['pending-rides-records'], pendingSync.pendingDrafts);
-  }, [pendingSync.pendingDrafts, queryClient]);
+    queryClient.setQueryData(['pending-rides-home', userId], pendingSync.pendingDrafts);
+    queryClient.setQueryData(['pending-rides-records', userId], pendingSync.pendingDrafts);
+  }, [pendingSync.pendingDrafts, queryClient, userId]);
 
   const value = useMemo<RideSyncCoordinatorState>(() => ({
     ...pendingSync,

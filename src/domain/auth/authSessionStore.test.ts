@@ -77,6 +77,14 @@ describe('authSessionStore', () => {
     expect(secureStoreMock.deleteItemAsync).not.toHaveBeenCalled();
   });
 
+  it('userId가 없는 구버전 세션을 제거해 계정 격리 없는 로그인 상태를 허용하지 않는다', async () => {
+    const { userId: _userId, ...legacySession } = testSession;
+    memoryStorage.setItem('gaja.auth.session', JSON.stringify(legacySession));
+
+    await expect(loadAuthSession()).resolves.toBeNull();
+    expect(memoryStorage.getItem('gaja.auth.session')).toBeNull();
+  });
+
   it('Android에서는 새 access/refresh token 쌍을 SecureStore 한 번의 쓰기로 교체한다', async () => {
     // Given
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });

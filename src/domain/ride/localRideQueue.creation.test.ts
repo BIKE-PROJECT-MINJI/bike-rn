@@ -49,54 +49,65 @@ describe('local ride creation gate', () => {
 
   it('rejects a second active ride while a RECORDING ride exists', async () => {
     // Given
-    await saveRideDraft(createRideDraft('ride-active-first', 1_700_000_000_000));
+    await saveRideDraft(createTestRideDraft('ride-active-first', 1_700_000_000_000));
 
     // When
     const created = await createRideDraftIfQueueEmpty(
-      createRideDraft('ride-active-second', 1_700_000_001_000),
+      createTestRideDraft('ride-active-second', 1_700_000_001_000),
     );
 
     // Then
     expect(created).toBe(false);
-    expect(listPendingRideDrafts()).toHaveLength(1);
+    expect(listPendingRideDrafts(TEST_OWNER_USER_ID)).toHaveLength(1);
   });
 
   it('rejects a second active ride while a PAUSED ride exists', async () => {
     // Given
-    const paused = pauseRideDraft(createRideDraft('ride-paused-first', 1_700_000_000_000), 1_700_000_010_000);
+    const paused = pauseRideDraft(createTestRideDraft('ride-paused-first', 1_700_000_000_000), 1_700_000_010_000);
     await saveRideDraft(paused);
 
     // When
     const created = await createRideDraftIfQueueEmpty(
-      createRideDraft('ride-active-second', 1_700_000_020_000),
+      createTestRideDraft('ride-active-second', 1_700_000_020_000),
     );
 
     // Then
     expect(created).toBe(false);
-    expect(listPendingRideDrafts()).toHaveLength(1);
+    expect(listPendingRideDrafts(TEST_OWNER_USER_ID)).toHaveLength(1);
   });
 
   it('preserves a queued ride while allowing a new active ride', async () => {
     // Given
     const queued = finishRideDraft(
-      createRideDraft('ride-upload-pending', 1_700_000_000_000),
+      createTestRideDraft('ride-upload-pending', 1_700_000_000_000),
       1_700_000_060_000,
     );
     await saveRideDraft(queued);
 
     // When
     const created = await createRideDraftIfQueueEmpty(
-      createRideDraft('ride-active-new', 1_700_000_070_000),
+      createTestRideDraft('ride-active-new', 1_700_000_070_000),
     );
 
     // Then
     expect(created).toBe(true);
-    expect(listPendingRideDrafts().map((draft) => draft.clientRideId).sort()).toEqual([
+    expect(listPendingRideDrafts(TEST_OWNER_USER_ID).map((draft) => draft.clientRideId).sort()).toEqual([
       'ride-active-new',
       'ride-upload-pending',
     ]);
   });
 });
+
+const TEST_OWNER_USER_ID = 42;
+
+function createTestRideDraft(clientRideId: string, startedAtMs: number) {
+  return createRideDraft(
+    clientRideId,
+    startedAtMs,
+    { mode: 'FREE', courseId: null, courseTitle: null, partyId: null },
+    TEST_OWNER_USER_ID,
+  );
+}
 
 function requireString(value: unknown): string {
   if (typeof value !== 'string') {

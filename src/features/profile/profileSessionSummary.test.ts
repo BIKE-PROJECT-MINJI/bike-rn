@@ -23,6 +23,7 @@ describe('profileSessionSummary', () => {
   it('표시 이름이 없으면 이메일을 제목으로 사용한다', () => {
     const result = buildProfileSessionSummary(
       {
+        userId: 11,
         displayName: '',
         email: 'legacy@example.com',
         accessToken: 'access-token',

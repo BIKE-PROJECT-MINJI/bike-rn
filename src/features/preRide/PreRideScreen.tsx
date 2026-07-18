@@ -80,6 +80,7 @@ export function PreRideScreen({ courseId }: { courseId: number }) {
           courseId={courseId}
           courseTitle={courseQuery.data?.title ?? null}
           accessToken={accessToken}
+          userId={authSessionQuery.data?.userId ?? null}
           onConfirmRide={(partyId) => requestRideStart(partyId)}
         />
         <GajaButton

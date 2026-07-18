@@ -1,10 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { loadAuthSession } from '../../domain/auth/authSessionStore';
 import { fetchRideRecords } from '../../domain/ride/rideApi';
-import { listPendingRideDrafts } from '../../domain/ride/localRideQueue';
 import type { RideDraft } from '../../domain/ride/rideQueueModel';
 import { canManuallyRetryRide } from '../../domain/ride/rideQueueModel';
 import { RIDE_ROUTE_QUALITY_REJECTED_ERROR_CODE } from '../../domain/ride/rideRouteQuality';
@@ -22,17 +21,13 @@ export function RecordsScreen() {
   const rideSync = useRideSyncCoordinator();
   const sessionQuery = useQuery({ queryKey: ['auth-session', 'records'], queryFn: loadAuthSession });
   const accessToken = sessionQuery.data?.accessToken ?? null;
-  const pendingQuery = useQuery({
-    queryKey: ['pending-rides-records'],
-    queryFn: async () => listPendingRideDrafts(),
-    refetchInterval: 5_000,
-  });
+  const userId = sessionQuery.data?.userId ?? null;
   const recordsQuery = useQuery({
-    queryKey: ['ride-records', 'records-tab'],
+    queryKey: ['ride-records', 'records-tab', userId],
     queryFn: () => fetchRideRecords(requireAccessToken(accessToken)),
     enabled: accessToken !== null,
   });
-  const hasNothing = (pendingQuery.data?.length ?? 0) === 0 && (recordsQuery.data?.length ?? 0) === 0;
+  const hasNothing = rideSync.pendingDrafts.length === 0 && (recordsQuery.data?.length ?? 0) === 0;
 
   return (
     <GajaScreen>
@@ -40,7 +35,23 @@ export function RecordsScreen() {
         <Text style={styles.title}>기록</Text>
         <Text style={styles.subtitle}>기기에 보관된 원본과 서버 처리 상태를 함께 확인합니다.</Text>
       </View>
-      {pendingQuery.data?.map((draft) => (
+      {rideSync.legacyRecovery.totalCount > 0 ? (
+        <GajaCard
+          title="이전 버전 주행 보존 중"
+          subtitle={`계정을 확인할 수 없는 기록 ${rideSync.legacyRecovery.totalCount}건이 기기에 보존되어 있습니다.`}
+        >
+          <Text style={styles.pendingMeta}>좌표와 상세 내용은 표시하거나 서버로 전송하지 않습니다.</Text>
+          {rideSync.legacyRecovery.activeDraftCount > 0 ? (
+            <GajaButton
+              label={rideSync.syncing ? '정리 중' : '이전 주행 종료하고 원본 보존'}
+              variant="secondary"
+              disabled={accessToken === null || userId === null || rideSync.syncing}
+              onPress={() => confirmLegacyRideQuarantine(() => void rideSync.quarantineLegacyRides())}
+            />
+          ) : null}
+        </GajaCard>
+      ) : null}
+      {rideSync.pendingDrafts.map((draft) => (
         <PendingRideCard
           key={draft.clientRideId}
           draft={draft}
@@ -69,6 +80,17 @@ export function RecordsScreen() {
       })}
       {hasNothing && !recordsQuery.isPending ? <EmptyStateView title="아직 기록이 없어요" message="자유주행을 시작하면 기기에 먼저 안전하게 저장됩니다." /> : null}
     </GajaScreen>
+  );
+}
+
+function confirmLegacyRideQuarantine(onConfirm: () => void): void {
+  Alert.alert(
+    '이전 버전 주행을 보존할까요?',
+    '계정을 확인할 수 없어 서버에는 보내지 않습니다. 진행 중 상태를 종료해 재개할 수 없게 하고, 좌표 원본은 기기에 격리 보존합니다.',
+    [
+      { text: '취소', style: 'cancel' },
+      { text: '보존', onPress: onConfirm },
+    ],
   );
 }
 

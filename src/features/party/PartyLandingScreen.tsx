@@ -24,8 +24,9 @@ export function PartyLandingScreen() {
   const [scope, setScope] = useState<RidePartyBrowseScope>('ALL');
   const sessionQuery = useQuery({ queryKey: ['auth-session', 'party'], queryFn: loadAuthSession });
   const accessToken = sessionQuery.data?.accessToken ?? null;
+  const userId = sessionQuery.data?.userId ?? null;
   const partiesQuery = useQuery({
-    queryKey: ['ride-parties-browse', scope],
+    queryKey: ['ride-parties-browse', scope, userId],
     queryFn: () => fetchRidePartiesByScope(scope, requireAccessToken(accessToken)),
     enabled: accessToken !== null,
     refetchInterval: 5_000,

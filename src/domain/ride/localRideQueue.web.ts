@@ -4,11 +4,17 @@ import {
   type RidePointInput,
   type RideReceipt,
 } from './rideQueueModel';
+import type { LegacyRideRecoverySummary } from './legacyRideRecovery';
 
 const drafts = new Map<string, RideDraft>();
 const locationEvents = new Set<string>();
 const pointKeys = new Set<string>();
-let latestReceipt: RideReceipt | null = null;
+type OwnedRideReceipt = {
+  readonly ownerUserId: number | null;
+  readonly receipt: RideReceipt;
+};
+
+let latestReceipt: OwnedRideReceipt | null = null;
 
 export function ensureRideQueueTables(): void {
   // Web is a design preview. Durable ride storage remains Android SQLite only.
@@ -76,25 +82,66 @@ export function loadRideDraft(clientRideId: string): RideDraft | null {
   return drafts.get(clientRideId) ?? null;
 }
 
-export function loadActiveRideDraft(): RideDraft | null {
+export function loadActiveRideDraft(ownerUserId: number | null): RideDraft | null {
+  if (ownerUserId === null) {
+    return null;
+  }
+  return [...drafts.values()].find(
+    (draft) => draft.ownerUserId === ownerUserId && (draft.status === 'RECORDING' || draft.status === 'PAUSED'),
+  ) ?? null;
+}
+
+export function loadAnyActiveRideDraftForBackgroundTask(): RideDraft | null {
   return [...drafts.values()].find(
     (draft) => draft.status === 'RECORDING' || draft.status === 'PAUSED',
   ) ?? null;
 }
 
-export function listPendingRideDrafts(): readonly RideDraft[] {
-  return [...drafts.values()];
+export function listPendingRideDrafts(ownerUserId: number | null): readonly RideDraft[] {
+  return ownerUserId === null
+    ? []
+    : [...drafts.values()].filter((draft) => draft.ownerUserId === ownerUserId);
+}
+
+export function loadLegacyRideRecoverySummary(): LegacyRideRecoverySummary {
+  const legacyDrafts = [...drafts.values()].filter((draft) => draft.ownerUserId === null);
+  const receiptCount = latestReceipt?.ownerUserId === null ? 1 : 0;
+  return {
+    activeDraftCount: legacyDrafts.filter((draft) => draft.status === 'RECORDING' || draft.status === 'PAUSED').length,
+    receiptCount,
+    totalCount: legacyDrafts.length + receiptCount,
+  };
+}
+
+export async function quarantineLegacyActiveRides(): Promise<void> {
+  for (const [clientRideId, draft] of drafts) {
+    if (draft.ownerUserId === null && (draft.status === 'RECORDING' || draft.status === 'PAUSED')) {
+      const nowMs = Date.now();
+      const activeSegmentMs = draft.status === 'RECORDING' && draft.activeSegmentStartedAtMs !== null
+        ? Math.max(0, nowMs - draft.activeSegmentStartedAtMs)
+        : 0;
+      drafts.set(clientRideId, {
+        ...draft,
+        status: 'FAILED_USER_ACTION',
+        endedAtIso: draft.endedAtIso ?? new Date(nowMs).toISOString(),
+        accumulatedActiveMs: draft.accumulatedActiveMs + activeSegmentMs,
+        activeSegmentStartedAtMs: null,
+        nextRetryAtMs: null,
+        lastErrorCode: 'LEGACY_RIDE_OWNER_UNKNOWN',
+      });
+    }
+  }
 }
 
 export async function discardRideDraft(clientRideId: string): Promise<void> {
   drafts.delete(clientRideId);
 }
 
-export async function completeRideDraft(receipt: RideReceipt): Promise<void> {
-  latestReceipt = receipt;
+export async function completeRideDraft(receipt: RideReceipt, ownerUserId: number): Promise<void> {
+  latestReceipt = { ownerUserId, receipt };
   drafts.delete(receipt.clientRideId);
 }
 
-export function loadLatestRideReceipt(): RideReceipt | null {
-  return latestReceipt;
+export function loadLatestRideReceipt(ownerUserId: number | null): RideReceipt | null {
+  return latestReceipt?.ownerUserId === ownerUserId ? latestReceipt.receipt : null;
 }

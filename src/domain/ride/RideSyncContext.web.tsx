@@ -12,11 +12,13 @@ export function RideSyncProvider({ children }: { readonly children: ReactNode })
     draft: null,
     pendingDrafts: [],
     receipt: null,
+    legacyRecovery: { activeDraftCount: 0, receiptCount: 0, totalCount: 0 },
     syncing: false,
     message,
     errorMessage,
     refreshLocal: () => undefined,
     syncById: async () => undefined,
+    quarantineLegacyRides: async () => undefined,
     setMessage,
     setErrorMessage,
   }), [errorMessage, message]);

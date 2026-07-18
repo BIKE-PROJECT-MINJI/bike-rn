@@ -90,7 +90,7 @@ export async function replaceAuthSessionTokensIfCurrent(
     if (
       current === null ||
       !hasSameSessionLineage(current, expected) ||
-      (current.userId !== undefined && token.userId !== current.userId)
+      token.userId !== current.userId
     ) {
       return null;
     }
@@ -126,6 +126,9 @@ function isAuthSession(value: unknown): value is AuthSession {
   }
 
   return (
+    typeof value.userId === 'number' &&
+    Number.isInteger(value.userId) &&
+    value.userId > 0 &&
     typeof value.email === 'string' &&
     typeof value.displayName === 'string' &&
     typeof value.accessToken === 'string' &&

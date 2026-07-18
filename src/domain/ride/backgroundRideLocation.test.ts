@@ -23,7 +23,7 @@ jest.mock('expo-task-manager', () => ({
 
 jest.mock('./localRideQueue', () => ({
   appendRidePointsToQueue: jest.fn(),
-  loadActiveRideDraft: jest.fn(() => null),
+  loadAnyActiveRideDraftForBackgroundTask: jest.fn(() => null),
   updateRideDraft: jest.fn(),
 }));
 

@@ -5,7 +5,7 @@ import { createRideDraft, finishRideDraft, type RideDraft, type RideReceipt } fr
 let mockDraft: RideDraft | null = null;
 const mockRecoverRideStatus = jest.fn();
 const mockUploadRideDraft = jest.fn();
-const mockCompleteRideDraft = jest.fn(async (_receipt: RideReceipt) => {
+const mockCompleteRideDraft = jest.fn(async (_receipt: RideReceipt, _ownerUserId: number) => {
   mockDraft = null;
 });
 const mockSaveRideDraft = jest.fn(async (draft: RideDraft) => {
@@ -17,9 +17,20 @@ jest.mock('./rideApi', () => ({
   recoverRideStatus: mockRecoverRideStatus,
   uploadRideDraft: mockUploadRideDraft,
 }));
+jest.mock('./backgroundRideLocation', () => ({
+  restartBackgroundRideLocation: jest.fn(async () => undefined),
+  stopBackgroundRideLocation: jest.fn(async () => undefined),
+}));
 jest.mock('./localRideQueue', () => ({
+  quarantineLegacyActiveRides: jest.fn(async () => undefined),
   completeRideDraft: mockCompleteRideDraft,
-  listPendingRideDrafts: jest.fn(() => (mockDraft === null ? [] : [mockDraft])),
+  listPendingRideDrafts: jest.fn((ownerUserId: number | null) =>
+    mockDraft === null || mockDraft.ownerUserId !== ownerUserId ? [] : [mockDraft]),
+  loadLegacyRideRecoverySummary: jest.fn(() => ({
+    activeDraftCount: mockDraft?.ownerUserId === null && (mockDraft.status === 'RECORDING' || mockDraft.status === 'PAUSED') ? 1 : 0,
+    receiptCount: 0,
+    totalCount: mockDraft?.ownerUserId === null ? 1 : 0,
+  })),
   loadLatestRideReceipt: jest.fn(() => null),
   loadRideDraft: jest.fn(() => mockDraft),
   saveRideDraft: mockSaveRideDraft,
@@ -62,6 +73,7 @@ describe('useRidePendingSync authentication recovery', () => {
     await waitFor(() => expect(mockRecoverRideStatus).toHaveBeenCalledWith('ride-auth-recovery', 'rotated-access'));
     await waitFor(() => expect(mockCompleteRideDraft).toHaveBeenCalledWith(
       expect.objectContaining({ clientRideId: 'ride-auth-recovery', rideRecordId: 41 }),
+      42,
     ));
     expect(mockUploadRideDraft).not.toHaveBeenCalled();
     act(unmount);
@@ -69,7 +81,7 @@ describe('useRidePendingSync authentication recovery', () => {
 
   it('keeps account A outbox local when account B logs in', async () => {
     // Given
-    const { rerender, unmount } = renderHook(
+    const { result, rerender, unmount } = renderHook(
       ({ token, userId }: { readonly token: string | null; readonly userId: number | null }) =>
         useRidePendingSync(token, jest.fn(), jest.fn(), userId),
       { initialProps: { token: null, userId: null } },
@@ -85,6 +97,8 @@ describe('useRidePendingSync authentication recovery', () => {
     // Then
     expect(mockRecoverRideStatus).not.toHaveBeenCalled();
     expect(mockUploadRideDraft).not.toHaveBeenCalled();
+    expect(result.current.pendingDrafts).toEqual([]);
+    expect(result.current.draft).toBeNull();
     expect(mockDraft).toMatchObject({ clientRideId: 'ride-auth-recovery', ownerUserId: 42 });
     act(unmount);
   });

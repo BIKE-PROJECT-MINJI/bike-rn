@@ -24,9 +24,11 @@ const mockUseRidePendingSync = jest.fn((_accessToken: string | null): RidePendin
     draft: mockPendingDrafts[0] ?? null,
     pendingDrafts: mockPendingDrafts,
     receipt: null,
+    legacyRecovery: { activeDraftCount: 0, receiptCount: 0, totalCount: 0 },
     syncing: false,
     refreshLocal: jest.fn(),
     syncById: jest.fn(async () => undefined),
+    quarantineLegacyRides: jest.fn(async () => undefined),
   };
 });
 
@@ -78,8 +80,8 @@ describe('RideSyncProvider', () => {
       expect.any(Function),
       42,
     );
-    expect(queryClient.getQueryData(['pending-rides-home'])).toBe(mockPendingDrafts);
-    expect(queryClient.getQueryData(['pending-rides-records'])).toBe(mockPendingDrafts);
+    expect(queryClient.getQueryData(['pending-rides-home', 42])).toBe(mockPendingDrafts);
+    expect(queryClient.getQueryData(['pending-rides-records', 42])).toBe(mockPendingDrafts);
     view.unmount();
     queryClient.clear();
   }, 30_000);

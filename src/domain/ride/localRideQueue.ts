@@ -14,6 +14,8 @@ import {
 
 export { ensureRideQueueTables } from './rideQueueDatabase';
 export { completeRideDraft, loadLatestRideReceipt } from './rideReceiptStore';
+export { loadLegacyRideRecoverySummary, quarantineLegacyActiveRides } from './legacyRideRecovery';
+export type { LegacyRideRecoverySummary } from './legacyRideRecovery';
 
 type DraftPayloadRow = { readonly client_ride_id: string; readonly payload: string };
 type PointPayloadRow = { readonly payload: string };
@@ -102,7 +104,24 @@ export function loadRideDraft(clientRideId: string): RideDraft | null {
   return loadRideDraftInternal(clientRideId);
 }
 
-export function loadActiveRideDraft(): RideDraft | null {
+export function loadActiveRideDraft(ownerUserId: number | null): RideDraft | null {
+  ensureRideQueueTables();
+  if (ownerUserId === null) {
+    return null;
+  }
+  const rows = database.getAllSync<DraftPayloadRow>(
+    'SELECT client_ride_id, payload FROM ride_outbox ORDER BY updated_at DESC',
+  );
+  for (const row of rows) {
+    const metadata = parsePersistedRideDraft(row.payload);
+    if (metadata.ownerUserId === ownerUserId && (metadata.status === 'RECORDING' || metadata.status === 'PAUSED')) {
+      return assembleRideDraft(row.client_ride_id, metadata);
+    }
+  }
+  return null;
+}
+
+export function loadAnyActiveRideDraftForBackgroundTask(): RideDraft | null {
   ensureRideQueueTables();
   const rows = database.getAllSync<DraftPayloadRow>(
     'SELECT client_ride_id, payload FROM ride_outbox ORDER BY updated_at DESC',
@@ -116,12 +135,18 @@ export function loadActiveRideDraft(): RideDraft | null {
   return null;
 }
 
-export function listPendingRideDrafts(): readonly RideDraft[] {
+export function listPendingRideDrafts(ownerUserId: number | null): readonly RideDraft[] {
   ensureRideQueueTables();
+  if (ownerUserId === null) {
+    return [];
+  }
   const rows = database.getAllSync<DraftPayloadRow>(
     'SELECT client_ride_id, payload FROM ride_outbox ORDER BY updated_at DESC',
   );
-  return rows.map((row) => assembleRideDraft(row.client_ride_id, parsePersistedRideDraft(row.payload)));
+  return rows
+    .map((row) => ({ row, metadata: parsePersistedRideDraft(row.payload) }))
+    .filter(({ metadata }) => metadata.ownerUserId === ownerUserId)
+    .map(({ row, metadata }) => assembleRideDraft(row.client_ride_id, metadata));
 }
 
 export async function discardRideDraft(clientRideId: string): Promise<void> {

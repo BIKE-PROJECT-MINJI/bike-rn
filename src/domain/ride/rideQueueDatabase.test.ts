@@ -46,7 +46,7 @@ describe('ride queue schema migration', () => {
     ensureRideQueueTables();
 
     expect(userVersion).toBe(RIDE_QUEUE_SCHEMA_VERSION);
-    expect(mockDatabase.withTransactionSync).toHaveBeenCalledTimes(1);
+    expect(mockDatabase.withTransactionSync).toHaveBeenCalledTimes(2);
     expect(mockDatabase.execSync).toHaveBeenCalledWith(expect.stringContaining('CREATE TABLE IF NOT EXISTS ride_outbox'));
   });
 
@@ -60,7 +60,18 @@ describe('ride queue schema migration', () => {
       .find((sql) => sql.includes('CREATE TABLE IF NOT EXISTS ride_outbox'));
     expect(migrationSql).toBeDefined();
     expect(migrationSql).not.toMatch(/\b(?:DELETE|DROP|REPLACE|TRUNCATE)\b/i);
-    expect(userVersion).toBe(1);
+    expect(userVersion).toBe(2);
+  });
+
+  it('adds receipt ownership when upgrading an existing version one database', () => {
+    userVersion = 1;
+    const { ensureRideQueueTables } = loadDatabaseModule();
+
+    ensureRideQueueTables();
+
+    expect(mockDatabase.withTransactionSync).toHaveBeenCalledTimes(1);
+    expect(mockDatabase.execSync).toHaveBeenCalledWith(expect.stringContaining('ADD COLUMN owner_user_id'));
+    expect(userVersion).toBe(2);
   });
 
   it('rolls back the schema version when a migration fails', () => {
@@ -73,7 +84,7 @@ describe('ride queue schema migration', () => {
   });
 
   it('rejects a database created by a newer incompatible app version', () => {
-    userVersion = 2;
+    userVersion = 3;
     const { ensureRideQueueTables } = loadDatabaseModule();
 
     expect(() => ensureRideQueueTables()).toThrow('현재 앱보다 새로운 주행 저장소 버전입니다.');
