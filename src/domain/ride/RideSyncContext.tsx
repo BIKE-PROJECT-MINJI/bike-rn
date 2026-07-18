@@ -5,6 +5,7 @@ import { useRidePendingSync, type RidePendingSyncState } from './useRidePendingS
 
 export type RideSyncCoordinatorState = RidePendingSyncState & {
   readonly accessToken: string | null;
+  readonly userId: number | null;
   readonly message: string;
   readonly errorMessage: string | null;
   readonly setMessage: (message: string) => void;
@@ -17,9 +18,10 @@ export function RideSyncProvider({ children }: { readonly children: ReactNode })
   const queryClient = useQueryClient();
   const sessionQuery = useQuery({ queryKey: ['auth-session'], queryFn: loadAuthSession });
   const accessToken = sessionQuery.data?.accessToken ?? null;
+  const userId = sessionQuery.data?.userId ?? null;
   const [message, setMessage] = useState('주행을 시작할 준비가 됐습니다.');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const pendingSync = useRidePendingSync(accessToken, setMessage, setErrorMessage);
+  const pendingSync = useRidePendingSync(accessToken, setMessage, setErrorMessage, userId);
 
   useEffect(() => subscribeAuthSessionChanges(() => {
     void queryClient.invalidateQueries({ queryKey: ['auth-session'] });
@@ -33,11 +35,12 @@ export function RideSyncProvider({ children }: { readonly children: ReactNode })
   const value = useMemo<RideSyncCoordinatorState>(() => ({
     ...pendingSync,
     accessToken,
+    userId,
     message,
     errorMessage,
     setMessage,
     setErrorMessage,
-  }), [accessToken, errorMessage, message, pendingSync]);
+  }), [accessToken, errorMessage, message, pendingSync, userId]);
 
   return <RideSyncContext.Provider value={value}>{children}</RideSyncContext.Provider>;
 }

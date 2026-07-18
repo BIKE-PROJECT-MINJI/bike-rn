@@ -3,6 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { createRideDraft, finishRideDraft, type RideDraft } from './rideQueueModel';
 
 let mockAppStateHandler: ((state: AppStateStatus) => void) | null = null;
+const TEST_USER_ID = 42;
 let mockCurrentAppState: AppStateStatus = 'active';
 const mockFetchRideStatus = jest.fn();
 const mockUploadRideDraft = jest.fn();
@@ -66,7 +67,8 @@ describe('useRidePendingSync foreground activation', () => {
     const onError = jest.fn();
 
     // When
-    const { unmount } = renderHook(() => useRidePendingSync('token', onMessage, onError));
+    const { unmount } = renderHook(() =>
+      useRidePendingSync('token', onMessage, onError, TEST_USER_ID));
 
     // Then
     await waitFor(() => expect(mockFetchRideStatus).toHaveBeenCalledTimes(1));
@@ -89,7 +91,8 @@ describe('useRidePendingSync foreground activation', () => {
     mockFetchRideStatus.mockImplementation(() => new Promise((resolve) => {
       resolveStatus = resolve;
     }));
-    const { unmount } = renderHook(() => useRidePendingSync('token', jest.fn(), jest.fn()));
+    const { unmount } = renderHook(() =>
+      useRidePendingSync('token', jest.fn(), jest.fn(), TEST_USER_ID));
 
     // When
     act(() => emitAppState('active'));
@@ -116,7 +119,10 @@ function emitAppState(nextState: AppStateStatus): void {
 
 function finalizingDraftWithNextPollAt(lastFinalizationPollAtMs: number): RideDraft {
   return {
-    ...finishRideDraft(createRideDraft('ride-finalizing', 1_700_000_000_000), 1_700_000_060_000),
+    ...finishRideDraft(
+      createRideDraft('ride-finalizing', 1_700_000_000_000, undefined, TEST_USER_ID),
+      1_700_000_060_000,
+    ),
     status: 'FINALIZING',
     rideRecordId: 41,
     finalizationStartedAtMs: Date.now() - 20_000,

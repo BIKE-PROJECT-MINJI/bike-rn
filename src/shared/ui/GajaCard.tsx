@@ -18,7 +18,15 @@ export function GajaCard({ title, subtitle, children, onPress }: CardProps) {
   );
 
   if (onPress) {
-    return <Pressable onPress={onPress}>{body}</Pressable>;
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={[title, subtitle].filter(Boolean).join(', ')}
+        onPress={onPress}
+      >
+        {body}
+      </Pressable>
+    );
   }
   return body;
 }

@@ -27,6 +27,7 @@ const rideModeSchema = z.enum(['FREE', 'COURSE', 'PARTY']);
 
 const rideDraftSchema = z.object({
   clientRideId: z.string().min(1).max(80),
+  ownerUserId: z.number().int().positive().nullable().default(null),
   mode: rideModeSchema.default('FREE'),
   courseId: z.number().int().positive().nullable().default(null),
   courseTitle: z.string().min(1).max(200).nullable().default(null),
@@ -71,9 +72,11 @@ export function createRideDraft(
   clientRideId: string,
   startedAtMs: number,
   context: RideStartContext = { mode: 'FREE', courseId: null, courseTitle: null, partyId: null },
+  ownerUserId: number | null = null,
 ): RideDraft {
   return rideDraftSchema.parse({
     clientRideId,
+    ownerUserId,
     ...context,
     status: 'RECORDING',
     startedAtIso: new Date(startedAtMs).toISOString(),

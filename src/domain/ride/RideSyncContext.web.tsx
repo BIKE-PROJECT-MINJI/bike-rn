@@ -8,6 +8,7 @@ export function RideSyncProvider({ children }: { readonly children: ReactNode })
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const value = useMemo<RideSyncCoordinatorState>(() => ({
     accessToken: null,
+    userId: null,
     draft: null,
     pendingDrafts: [],
     receipt: null,

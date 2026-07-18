@@ -11,6 +11,20 @@ import {
 } from './rideQueueModel';
 
 describe('ride queue model', () => {
+  it('preserves the authenticated owner when a queued ride is restored', () => {
+    // Given
+    const stored = {
+      ...finishRideDraft(createRideDraft('ride-owned', 1_700_000_000_000), 1_700_000_060_000),
+      ownerUserId: 42,
+    };
+
+    // When
+    const restored = parsePersistedRideDraft(JSON.stringify(stored));
+
+    // Then
+    expect(restored).toMatchObject({ clientRideId: 'ride-owned', ownerUserId: 42 });
+  });
+
   it('persists course and party context across process recovery', () => {
     const draft = createRideDraft('ride-party-001', 1_700_000_000_000, {
       mode: 'PARTY', courseId: 31, courseTitle: '한강 평지 코스', partyId: 9,
@@ -29,7 +43,7 @@ describe('ride queue model', () => {
     delete legacy.partyId;
 
     expect(parsePersistedRideDraft(JSON.stringify(legacy))).toMatchObject({
-      mode: 'FREE', courseId: null, courseTitle: null, partyId: null,
+      mode: 'FREE', courseId: null, courseTitle: null, partyId: null, ownerUserId: null,
     });
   });
 

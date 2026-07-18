@@ -49,13 +49,14 @@ describe('useRidePendingSync authentication recovery', () => {
   it('resumes an authentication-blocked outbox with the same clientRideId after login succeeds', async () => {
     // Given
     const { rerender, unmount } = renderHook(
-      ({ token }: { readonly token: string | null }) => useRidePendingSync(token, jest.fn(), jest.fn()),
-      { initialProps: { token: null } },
+      ({ token, userId }: { readonly token: string | null; readonly userId: number | null }) =>
+        useRidePendingSync(token, jest.fn(), jest.fn(), userId),
+      { initialProps: { token: null, userId: null } },
     );
     await waitFor(() => expect(mockRecoverRideStatus).not.toHaveBeenCalled());
 
     // When
-    rerender({ token: 'rotated-access' });
+    rerender({ token: 'rotated-access', userId: 42 });
 
     // Then
     await waitFor(() => expect(mockRecoverRideStatus).toHaveBeenCalledWith('ride-auth-recovery', 'rotated-access'));
@@ -66,23 +67,70 @@ describe('useRidePendingSync authentication recovery', () => {
     act(unmount);
   });
 
+  it('keeps account A outbox local when account B logs in', async () => {
+    // Given
+    const { rerender, unmount } = renderHook(
+      ({ token, userId }: { readonly token: string | null; readonly userId: number | null }) =>
+        useRidePendingSync(token, jest.fn(), jest.fn(), userId),
+      { initialProps: { token: null, userId: null } },
+    );
+
+    // When
+    rerender({ token: 'account-b-access', userId: 77 });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Then
+    expect(mockRecoverRideStatus).not.toHaveBeenCalled();
+    expect(mockUploadRideDraft).not.toHaveBeenCalled();
+    expect(mockDraft).toMatchObject({ clientRideId: 'ride-auth-recovery', ownerUserId: 42 });
+    act(unmount);
+  });
+
   it('does not automatically resume a ride whose retry budget is exhausted', async () => {
     // Given
     mockDraft = { ...failedAuthenticationDraft(), lastErrorCode: 'RIDE_RETRY_BUDGET_EXHAUSTED' };
 
     // When
-    const { unmount } = renderHook(() => useRidePendingSync('rotated-access', jest.fn(), jest.fn()));
+    const { unmount } = renderHook(() =>
+      useRidePendingSync('rotated-access', jest.fn(), jest.fn(), 42));
 
     // Then
     await act(async () => Promise.resolve());
     expect(mockRecoverRideStatus).not.toHaveBeenCalled();
     act(unmount);
   });
+
+  it('keeps a legacy ownerless outbox local after login', async () => {
+    // Given
+    mockDraft = { ...failedAuthenticationDraft(), ownerUserId: null };
+
+    // When
+    const { unmount } = renderHook(() =>
+      useRidePendingSync('rotated-access', jest.fn(), jest.fn(), 42));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Then
+    expect(mockRecoverRideStatus).not.toHaveBeenCalled();
+    expect(mockUploadRideDraft).not.toHaveBeenCalled();
+    expect(mockDraft).toMatchObject({ clientRideId: 'ride-auth-recovery', ownerUserId: null });
+    act(unmount);
+  });
 });
 
 function failedAuthenticationDraft(): RideDraft {
   return {
-    ...finishRideDraft(createRideDraft('ride-auth-recovery', 1_700_000_000_000), 1_700_000_060_000),
+    ...finishRideDraft(createRideDraft(
+      'ride-auth-recovery',
+      1_700_000_000_000,
+      undefined,
+      42,
+    ), 1_700_000_060_000),
     status: 'FAILED_USER_ACTION',
     attemptCount: 1,
     lastErrorCode: 'AUTHENTICATION_REQUIRED',

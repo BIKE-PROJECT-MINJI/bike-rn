@@ -72,6 +72,12 @@ describe('RideSyncProvider', () => {
     await waitFor(() => expect(screen.getByTestId('probe-a')).toHaveTextContent('access-token:1'));
     expect(screen.getByTestId('probe-b')).toHaveTextContent('access-token:1');
     expect(mockMaxCoordinatorCount).toBe(1);
+    expect(mockUseRidePendingSync).toHaveBeenCalledWith(
+      'access-token',
+      expect.any(Function),
+      expect.any(Function),
+      42,
+    );
     expect(queryClient.getQueryData(['pending-rides-home'])).toBe(mockPendingDrafts);
     expect(queryClient.getQueryData(['pending-rides-records'])).toBe(mockPendingDrafts);
     view.unmount();

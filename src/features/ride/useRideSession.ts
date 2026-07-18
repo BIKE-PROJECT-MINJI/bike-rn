@@ -45,6 +45,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
 
   const {
     accessToken,
+    userId,
     draft,
     pendingDrafts,
     receipt,
@@ -124,7 +125,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
     startInFlight.current = true;
     try {
       await lifecycleGate.run(async () => {
-        if (accessToken === null) {
+        if (accessToken === null || userId === null) {
           setErrorMessage('내 정보 탭에서 로그인한 뒤 주행을 시작해 주세요.');
           return;
         }
@@ -145,7 +146,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
             );
             return;
           }
-          const next = createRideDraft(`ride-${Crypto.randomUUID()}`, Date.now(), context);
+          const next = createRideDraft(`ride-${Crypto.randomUUID()}`, Date.now(), context, userId);
           if (!(await createRideDraftIfQueueEmpty(next))) {
             setErrorMessage('이미 진행 중인 주행이 있습니다.');
             refreshLocal();
@@ -168,7 +169,7 @@ export function useRideSession(_legacyAccessToken?: string | null): RideSessionS
     } finally {
       startInFlight.current = false;
     }
-  }, [accessToken, lifecycleGate, refreshLocal]);
+  }, [accessToken, lifecycleGate, refreshLocal, userId]);
 
   const togglePause = useCallback(async () => lifecycleGate.run(async () => {
     const active = loadActiveRideDraft();

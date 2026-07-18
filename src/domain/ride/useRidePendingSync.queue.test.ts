@@ -4,6 +4,7 @@ import { ApiClientError } from '../../shared/api/apiClient';
 import { createRideDraft, finishRideDraft, type RideDraft, type RideReceipt } from './rideQueueModel';
 
 const mockDrafts = new Map<string, RideDraft>();
+const TEST_USER_ID = 42;
 const mockReceipts: RideReceipt[] = [];
 const mockUploadOrder: string[] = [];
 let mockCurrentAppState: AppStateStatus = 'active';
@@ -88,7 +89,8 @@ describe('useRidePendingSync queued drain', () => {
     const onError = jest.fn();
 
     // When
-    const { result, unmount } = renderHook(() => useRidePendingSync('token', onMessage, onError));
+    const { result, unmount } = renderHook(() =>
+      useRidePendingSync('token', onMessage, onError, TEST_USER_ID));
 
     // Then
     await waitFor(() => expect(mockUploadRideDraft).toHaveBeenCalledTimes(1));
@@ -119,7 +121,8 @@ describe('useRidePendingSync queued drain', () => {
       nextRetryAtMs: budgetBoundaryMs + 1_000,
     });
 
-    const { unmount } = renderHook(() => useRidePendingSync('token', jest.fn(), jest.fn()));
+    const { unmount } = renderHook(() =>
+      useRidePendingSync('token', jest.fn(), jest.fn(), TEST_USER_ID));
     await act(async () => Promise.resolve());
     await act(async () => {
       jest.setSystemTime(budgetBoundaryMs + 1_000);
@@ -137,5 +140,8 @@ describe('useRidePendingSync queued drain', () => {
 });
 
 function queuedDraft(clientRideId: string, startedAtMs: number): RideDraft {
-  return finishRideDraft(createRideDraft(clientRideId, startedAtMs), startedAtMs + 60_000);
+  return finishRideDraft(
+    createRideDraft(clientRideId, startedAtMs, undefined, TEST_USER_ID),
+    startedAtMs + 60_000,
+  );
 }

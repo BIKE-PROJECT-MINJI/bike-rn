@@ -35,6 +35,7 @@ export function useRidePendingSync(
   accessToken: string | null,
   onMessage: (message: string) => void,
   onError: (message: string | null) => void,
+  currentUserId: number | null = null,
 ): RidePendingSyncState {
   const [pendingDrafts, setPendingDrafts] = useState<readonly RideDraft[]>([]);
   const [receipt, setReceipt] = useState<RideReceipt | null>(null);
@@ -61,6 +62,10 @@ export function useRidePendingSync(
       }
       const current = loadRideDraft(clientRideId);
       if (current === null || current.status === 'RECORDING' || current.status === 'PAUSED') {
+        return;
+      }
+      if (currentUserId === null || current.ownerUserId !== currentUserId) {
+        onError(rideOwnerMismatchMessage(current));
         return;
       }
       if (
@@ -103,7 +108,7 @@ export function useRidePendingSync(
         refreshLocal();
       }
     }),
-    [accessToken, onError, onMessage, refreshLocal, syncGate, uploadGate],
+    [accessToken, currentUserId, onError, onMessage, refreshLocal, syncGate, uploadGate],
   );
 
   const syncById = useCallback(
@@ -192,3 +197,9 @@ export function useRidePendingSync(
 
 const UNKNOWN_RIDE_ERROR_MESSAGE = '주행 처리 중 알 수 없는 오류가 발생했습니다.';
 type RideSyncTrigger = 'AUTO' | 'MANUAL';
+
+function rideOwnerMismatchMessage(draft: RideDraft): string {
+  return draft.ownerUserId === null
+    ? '이전 버전에서 기록한 주행의 계정을 확인할 수 없습니다. 원본은 기기에 보관됩니다.'
+    : '다른 계정에서 기록한 주행입니다. 해당 계정으로 로그인해야 전송할 수 있습니다.';
+}
