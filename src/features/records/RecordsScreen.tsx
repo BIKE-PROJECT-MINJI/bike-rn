@@ -16,6 +16,7 @@ import { GajaCard, StatusBadge } from '../../shared/ui/GajaCard';
 import { GajaScreen } from '../../shared/ui/GajaScreen';
 import { EmptyStateView, ErrorStateView, LoadingStateView } from '../../shared/ui/StateViews';
 import { buildRideQualityNotice } from './rideQualityNotice';
+import { presentFinalizationStatus, presentRideDraftStatus } from './rideStatusPresentation';
 
 export function RecordsScreen() {
   const rideSync = useRideSyncCoordinator();
@@ -70,9 +71,10 @@ export function RecordsScreen() {
       {recordsQuery.error ? <ErrorStateView title="기록을 불러오지 못했어요" message={recordsQuery.error.message} onRetry={() => recordsQuery.refetch()} /> : null}
       {recordsQuery.data?.map((record) => {
         const qualityNotice = buildRideQualityNotice(record.qualityStatus);
+        const finalization = presentFinalizationStatus(record.finalizationStatus);
         return (
           <GajaCard key={record.rideRecordId} title={`주행 기록 #${record.rideRecordId}`} subtitle={`${formatHudDistance(record.distanceM)} · ${formatHudDuration(record.durationSec * 1000)}`}>
-            <StatusBadge label={record.finalizationStatus} tone={record.finalizationStatus === 'READY' ? 'success' : record.finalizationStatus === 'FAILED' ? 'danger' : 'warning'} />
+            <StatusBadge label={finalization.label} tone={finalization.tone} />
             {qualityNotice ? <StatusBadge label={qualityNotice.label} tone={qualityNotice.tone} /> : null}
             {qualityNotice ? <Text style={styles.pendingMeta}>{qualityNotice.message}</Text> : null}
           </GajaCard>
@@ -107,12 +109,12 @@ function PendingRideCard({
   readonly retryLabel: string;
   readonly onRetry: () => void;
 }) {
-  const tone = draft.status === 'FAILED_TERMINAL' || draft.status === 'FAILED_USER_ACTION' ? 'danger' : 'warning';
+  const status = presentRideDraftStatus(draft.status);
   return (
     <GajaCard title="기기 보관 기록" subtitle={`${formatHudDistance(draft.distanceMeters)} · ${draft.routePoints.length}개 위치`}>
       <View style={styles.pendingRow}>
         <Ionicons name="phone-portrait-outline" size={20} color={GajaColors.primary} />
-        <StatusBadge label={draft.status} tone={tone} />
+        <StatusBadge label={status.label} tone={status.tone} />
       </View>
       <Text style={styles.pendingMeta}>
         {draft.lastErrorCode === RIDE_ROUTE_QUALITY_REJECTED_ERROR_CODE
