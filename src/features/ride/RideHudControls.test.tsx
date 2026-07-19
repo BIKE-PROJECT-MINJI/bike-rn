@@ -56,6 +56,29 @@ describe('RideHudDock', () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
     expect(screen.getByText('15.4')).toBeTruthy();
   });
+
+  it('저장 중인 HUD 명령을 disabled 상태로 알린다', () => {
+    // Given
+    const screen = render(
+      <RideHudDock
+        active
+        bottomInset={0}
+        busy
+        distance="4.3 km"
+        duration="28:14"
+        onEnd={jest.fn()}
+        onStart={jest.fn()}
+        onTogglePause={jest.fn()}
+        paused={false}
+        speedKmh={15.4}
+        startLabel="자유주행 시작"
+      />,
+    );
+
+    // When / Then
+    expect(screen.getByRole('button', { name: '주행 일시정지', disabled: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '주행 종료', disabled: true })).toBeTruthy();
+  });
 });
 
 describe('RideEndConfirmation', () => {
