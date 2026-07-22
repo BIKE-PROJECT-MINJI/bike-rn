@@ -1,0 +1,14 @@
+## 완료 보고
+- 요청 분류: Android 자유주행 저장 E2E fixture 수정 (Issue #12).
+- 원인: 기존 E2E는 저장 전 GPS를 주입하지 않아 유효 연속 point 2개 미만 trace가 `READY + REJECTED`로 finalization되고 RN이 `FAILED_TERMINAL`로 표시했다.
+- 변경: `ops/e2e/run-local-android-e2e.sh`가 임시 로컬 계정, local Metro/backend, ordered two-point GPS fixture, `FINALIZING -> READY` UI assertions, terminal failure assertion을 fail-closed로 실행한다.
+- 변경 파일: ops/e2e/run-local-android-e2e.sh, reports/T-RN-12.md.
+- 실제 환경: backend `/ready=200`, AI worker `/health=200`, emulator-5554 device, Maestro 2.7.0, adb reverse 8080/8081 확인.
+- E2E 결과: 미실행 PASS — worktree locked dependencies lack `node_modules/.bin/expo`; runner correctly requires the local CLI and makes no network install.
+- Focused/full Jest: 미실행 PASS — installed `jest-expo` reports missing `@react-native/jest-preset` peer before tests load.
+- Typecheck: 미실행 PASS — incomplete dependency tree cannot resolve `react-native`/`expo-router` types.
+- Static verification: `bash -n ops/e2e/run-local-android-e2e.sh`, `git diff --check` PASS.
+- Invariant: source trace is retained until `READY`; `REJECTED` remains terminal and is not weakened.
+- Issue/PR/SHA: #12 / Draft PR #15 / implementation commit fd69654b88377cf298fabc1086466516316eb665.
+- 남은 리스크: a complete locked install is required to run and record the real authenticated UI/API assertion; no AWS or external provider was used.
+- 비판 검토: two read-only reviews agreed fixture-only is the smallest compliant fix and required the two-point quality gate.
