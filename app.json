@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "bike-rn",
+    "name": "GAJA",
     "slug": "bike-rn",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,7 +11,8 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.bikeprojectminji.gaja.e2e",
+      "package": "com.bikeprojectminji.gaja",
+      "versionCode": 1,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

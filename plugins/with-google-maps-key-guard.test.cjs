@@ -30,6 +30,7 @@ test('adds one release build gate without embedding a key', () => {
 
   assert.equal(once, twice);
   assert.match(once, /environmentVariable\("GOOGLE_MAPS_ANDROID_API_KEY"\)/);
+  assert.doesNotMatch(once, /gradleProperty\(/);
   assert.match(once, /debug-only-missing-google-maps-key/);
   assert.match(once, /Google Maps Android API key is required for release builds/);
   assert.equal(once.includes('AIza'), false);
