@@ -1,0 +1,21 @@
+# Local authenticated AI-route journey.  The runner supplies no credentials;
+# it starts after the sanitized login replay has established the session.
+appId: com.bikeprojectminji.gaja
+name: T-RN-E2E-01 AI destination route
+---
+- tapOn:
+    text: "AI 코스 만들기, 만들기"
+- assertVisible: "목적지 주소 또는 장소명"
+- tapOn: "목적지 주소 또는 장소명"
+- inputText: "서울대입구"
+- tapOn: "주소 검색"
+- assertVisible: "목적지로 선택"
+- tapOn: "목적지로 선택"
+- tapOn: "예: 평지 위주로 한강이 보이는 조용한 코스"
+- inputText: "평지 위주"
+- pressKey: Back
+- tapOn: "코스 후보 만들기"
+- tapOn:
+    text: "앱 사용 중에만 허용"
+    optional: true
+- assertVisible: "개 후보"

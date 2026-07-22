@@ -1,0 +1,6 @@
+appId: com.bikeprojectminji.gaja
+name: T-RN-E2E-01 free ride and offline reconciliation attempt
+---
+- tapOn:
+    text: "자유주행 시작"
+- assertVisible: "주행 기록 중입니다. 화면을 잠가도 로컬에 계속 저장합니다."

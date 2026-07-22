@@ -1,0 +1,11 @@
+appId: com.bikeprojectminji.gaja
+name: T-RN-E2E-01 native smoke
+---
+- launchApp:
+    clearState: false
+- assertVisible: "GAJA"
+- assertVisible: "AI 코스 만들기"
+- assertVisible: "자유주행 시작"
+- tapOn:
+    text: "AI 코스 만들기, 만들기"
+- assertVisible: "AI 코스 만들기"

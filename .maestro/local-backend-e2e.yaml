@@ -1,0 +1,18 @@
+# This flow is deliberately gated by ops/e2e/run-local-android-e2e.sh.
+# It must only be run after the coordinator has announced the merged backend main.
+appId: com.bikeprojectminji.gaja
+name: T-RN-E2E-01 local backend journey
+---
+- launchApp:
+    clearState: false
+- assertVisible: "GAJA"
+- assertVisible: "AI 코스 만들기"
+# Login credentials and backend-generated IDs are injected by the local harness;
+# neither values nor precise location are written to Maestro output.
+- runFlow:
+    when:
+      visible: "AI 코스 만들기"
+    commands:
+      - tapOn:
+          text: "AI 코스 만들기, 만들기"
+      - assertVisible: "AI 코스 만들기"
