@@ -1,0 +1,21 @@
+# Local-only authentication repro. Credentials are injected by the runner and
+# must never be committed or written to Maestro output.
+appId: com.bikeprojectminji.gaja
+name: T-RN-E2E-01 local login repro
+---
+- tapOn:
+    text: "마이"
+- assertVisible: "이메일"
+- tapOn:
+    text: "이메일"
+- eraseText: 100
+- inputText: ${E2E_EMAIL}
+- tapOn:
+    text: "비밀번호"
+- eraseText: 100
+- inputText: ${E2E_PASSWORD}
+- pressKey: Back
+- tapOn:
+    text: "로그인"
+    below: "비밀번호"
+- assertVisible: "로그인됨"
