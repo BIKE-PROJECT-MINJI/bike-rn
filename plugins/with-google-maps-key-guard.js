@@ -27,7 +27,6 @@ function addGoogleMapsReleaseGate(source) {
   }
   return `${source.trimEnd()}\n\n${GRADLE_MARKER}
 def gajaGoogleMapsApiKey = providers.environmentVariable("GOOGLE_MAPS_ANDROID_API_KEY")
-    .orElse(providers.gradleProperty("GOOGLE_MAPS_ANDROID_API_KEY"))
     .getOrElse("")
 def gajaGoogleMapsManifestValue = gajaGoogleMapsApiKey.trim().isEmpty()
     ? "debug-only-missing-google-maps-key"
