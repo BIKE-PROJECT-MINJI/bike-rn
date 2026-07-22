@@ -9,6 +9,6 @@
 - Typecheck: 미실행 PASS — incomplete dependency tree cannot resolve `react-native`/`expo-router` types.
 - Static verification: `bash -n ops/e2e/run-local-android-e2e.sh`, `git diff --check` PASS.
 - Invariant: source trace is retained until `READY`; `REJECTED` remains terminal and is not weakened.
-- Issue/PR/SHA: #12 / pending Draft PR / 8f68d77841c3b3344700bd62b6fa598bb35d911b (superseded by the amend below).
+- Issue/PR/SHA: #12 / pending Draft PR / implementation commit fd69654b88377cf298fabc1086466516316eb665.
 - 남은 리스크: a complete locked install is required to run and record the real authenticated UI/API assertion; no AWS or external provider was used.
 - 비판 검토: two read-only reviews agreed fixture-only is the smallest compliant fix and required the two-point quality gate.
