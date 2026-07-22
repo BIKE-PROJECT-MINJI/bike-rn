@@ -55,7 +55,9 @@
     "check:prototype": "node ops/smoke/prototype_readiness_check.mjs",
     "check:native": "node ops/smoke/native_readiness_check.mjs",
     "c003:ngrok-preflight": "bash ops/smoke/c003_ngrok_preflight.sh",
-    "e2e:local-android": "bash ops/e2e/run-local-android-e2e.sh"
+    "e2e:local-android": "bash ops/e2e/run-local-android-e2e.sh",
+    "e2e:local-android:selftest": "node --test ops/e2e/replay-local-api-matrix.test.mjs",
+    "e2e:scan-evidence": "node ops/e2e/scan-tracked-e2e-evidence.mjs"
   },
   "jest": {
     "preset": "jest-expo",

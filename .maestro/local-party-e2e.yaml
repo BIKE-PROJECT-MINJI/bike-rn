@@ -1,0 +1,5 @@
+appId: com.bikeprojectminji.gaja
+name: T-RN-E2E-01 Party reconciliation attempt
+---
+- tapOn: "파티"
+- assertVisible: "파티"
